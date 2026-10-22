@@ -15,6 +15,7 @@ import { useToaster } from '@/components/providers/ToastProvider'
 import { useLiveQuery } from '@/lib/hooks'
 import { pendingInvitesQuery } from '@/lib/data/org'
 import { api } from '@/lib/api'
+import { provisionAccount, sendPasswordReset } from '@/lib/provision'
 import { friendlyError } from '@/lib/errors'
 import { formatDate } from '@/lib/format'
 import { canAssignRole, canRemoveMember, ROLE_LABELS, ROLES } from '@domain/roles'
@@ -28,13 +29,24 @@ const ROLE_HELP: Record<Role, string> = {
   viewer: 'Read-only access.',
 }
 
-function InvitePanel() {
+function tempPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  const buf = new Uint32Array(14)
+  crypto.getRandomValues(buf)
+  return Array.from(buf, (n) => alphabet[n % alphabet.length]).join('')
+}
+
+function AddMemberPanel() {
   const { orgId, role } = useOrg()
   const toast = useToaster()
   const invites = useLiveQuery<Invite>(() => (orgId ? pendingInvitesQuery(orgId) : null), `inv:${orgId}`)
-  const grantable = ROLES.filter((r) => role && canAssignRole(role, null, r).ok).reverse()
+  const grantable = ROLES.filter((r) => r !== 'owner' && role && canAssignRole(role, null, r).ok).reverse()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<Role>('member')
+  const [newRole, setNewRole] = useState<Role>('member')
+  const [password, setPassword] = useState(tempPassword)
+  const [sendReset, setSendReset] = useState(true)
+  const [created, setCreated] = useState<{ email: string; password: string } | null>(null)
   const [link, setLink] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -43,13 +55,19 @@ function InvitePanel() {
     e.preventDefault()
     setPending(true)
     setError(null)
+    setCreated(null)
     setLink(null)
     try {
-      const { inviteId } = await api.createInvite({ orgId: orgId!, email, role: inviteRole })
-      // The invite id is the secret; whoever holds the link and the invited, verified email can join.
-      const url = `${window.location.origin}/invite/?org=${encodeURIComponent(orgId!)}&invite=${inviteId}`
-      setLink(url)
+      const res = await provisionAccount({ orgId: orgId!, email, displayName: name, role: newRole, password, sendResetLink: sendReset })
+      if (res.status === 'created') {
+        setCreated({ email: email.trim().toLowerCase(), password })
+        toast.success(`${name.trim()} can now sign in`)
+      } else {
+        setLink(`${window.location.origin}/invite/?org=${encodeURIComponent(orgId!)}&invite=${res.inviteId}`)
+      }
+      setName('')
       setEmail('')
+      setPassword(tempPassword())
     } catch (err) {
       setError(friendlyError(err))
     } finally {
@@ -57,67 +75,81 @@ function InvitePanel() {
     }
   }
 
-  const copy = async () => {
-    if (!link) return
+  const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(link)
-      toast.success('Invite link copied')
+      await navigator.clipboard.writeText(text)
+      toast.success('Copied')
     } catch {
-      toast.error('Copy failed. Select the link and copy it manually.')
+      toast.error('Copy failed. Select the text and copy it manually.')
     }
   }
 
   return (
-    <Panel title="Invite people">
-      <form className="inline-form" onSubmit={submit}>
-        <Field label="Email">{(p) => <input {...p} className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
-        <Field label="Role">
-          {(p) => (
-            <select {...p} className="input" value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)}>
-              {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-            </select>
-          )}
-        </Field>
-        <button className="btn btn-accent" disabled={pending || !email}>{pending ? 'Creating...' : 'Create invite'}</button>
+    <Panel title="Add team member">
+      <form className="stack" onSubmit={submit}>
+        <div className="form-grid form-grid--2">
+          <Field label="Full name">{(p) => <input {...p} className="input" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
+          <Field label="Work email">{(p) => <input {...p} className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
+          <Field label="Role">
+            {(p) => (
+              <select {...p} className="input" value={newRole} onChange={(e) => setNewRole(e.target.value as Role)}>
+                {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+              </select>
+            )}
+          </Field>
+          <Field label="Temporary password" hint="At least 8 characters. Share it privately.">
+            {(p) => (
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input {...p} className="input mono" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPassword(tempPassword())}>New</button>
+              </div>
+            )}
+          </Field>
+        </div>
+        <label className="row small">
+          <input type="checkbox" className="checkbox" checked={sendReset} onChange={(e) => setSendReset(e.target.checked)} />
+          Also email them a link to choose their own password
+        </label>
+        <div><button className="btn btn-accent" disabled={pending || !name.trim() || !email || password.length < 8}>{pending ? 'Creating account...' : 'Create account'}</button></div>
       </form>
       {error ? <div style={{ marginTop: 12 }}><Alert type="error">{error}</Alert></div> : null}
+      {created ? (
+        <div className="notice notice--info" style={{ marginTop: 12 }}>
+          <Icon name="checkCircle" size={16} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <strong>Account ready. Share these sign-in details privately; they are not shown again.</strong>
+            <div className="mono small">{created.email} · {created.password}</div>
+          </div>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(`${window.location.origin}/login/\n${created.email}\n${created.password}`)}>Copy</button>
+        </div>
+      ) : null}
       {link ? (
         <div className="notice notice--info" style={{ marginTop: 12 }}>
           <Icon name="mail" size={16} />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <strong>Send this link to the invitee. It expires in 7 days and works only for that email address.</strong>
-            <input className="input input--sm mono" readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Invite link" style={{ marginTop: 6 }} />
+            <strong>That email already has an account. Send them this link to join; it expires in 7 days.</strong>
+            <input className="input input--sm mono" readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Join link" style={{ marginTop: 6 }} />
           </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={copy}>Copy</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(link)}>Copy</button>
         </div>
       ) : null}
-      <p className="muted small" style={{ marginTop: 12 }}>
-        The invitee must sign in with this exact, verified email address. Emails are not sent automatically.
-      </p>
-      <h3 className="small" style={{ margin: '16px 0 8px' }}>Pending invites</h3>
-      {invites.loading ? (
-        <Loading rows={2} />
-      ) : invites.error ? (
-        <ErrorState error={invites.error} />
-      ) : invites.data.length === 0 ? (
-        <p className="muted small">No pending invites.</p>
-      ) : (
-        <ul className="item-list">
-          {invites.data.map((inv) => (
-            <li key={inv.id} className="item-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto auto' }}>
-              <span className="truncate">{inv.email}</span>
-              <span className="badge">{ROLE_LABELS[inv.role]}</span>
-              <span className="subtle xsmall hide-sm">expires {formatDate(inv.expiresAt)}</span>
-              <button
-                className="btn btn-danger-ghost btn-sm"
-                onClick={() => api.revokeInvite({ orgId: orgId!, inviteId: inv.id }).then(() => toast.success('Invite revoked'), toast.error)}
-              >
-                Revoke
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {invites.data.length ? (
+        <>
+          <h3 className="small" style={{ margin: '16px 0 8px' }}>Pending join links</h3>
+          <ul className="item-list">
+            {invites.data.map((inv) => (
+              <li key={inv.id} className="item-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto auto auto' }}>
+                <span className="truncate">{inv.email}</span>
+                <span className="badge">{ROLE_LABELS[inv.role]}</span>
+                <span className="subtle xsmall hide-sm">expires {formatDate(inv.expiresAt)}</span>
+                <button className="btn btn-danger-ghost btn-sm" onClick={() => api.revokeInvite({ orgId: orgId!, inviteId: inv.id }).then(() => toast.success('Link revoked'), toast.error)}>
+                  Revoke
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
     </Panel>
   )
 }
@@ -182,9 +214,20 @@ function MemberRow({ m }: { m: Membership }) {
       </td>
       <td data-label="Joined" className="cell-muted">{formatDate(m.joinedAt)}</td>
       <td className="col-actions">
-        {removable ? (
-          <button className="btn btn-danger-ghost btn-sm" disabled={busy} onClick={() => setConfirm(true)}>{self ? 'Leave' : 'Remove'}</button>
-        ) : null}
+        <div className="cell-actions">
+          {!self && role && canRemoveMember(role, m.role).ok ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => sendPasswordReset(m.email).then(() => toast.success(`Password reset email sent to ${m.email}`), toast.error)}
+            >
+              Reset password
+            </button>
+          ) : null}
+          {removable ? (
+            <button className="btn btn-danger-ghost btn-sm" disabled={busy} onClick={() => setConfirm(true)}>{self ? 'Leave' : 'Remove'}</button>
+          ) : null}
+        </div>
         <Dialog
           open={confirm}
           onClose={() => setConfirm(false)}
@@ -197,7 +240,7 @@ function MemberRow({ m }: { m: Membership }) {
             </>
           }
         >
-          <p>{self ? 'You will lose access to every project in this organization.' : 'They lose access immediately. Items assigned to them keep their assignment.'}</p>
+          <p>{self ? 'You will lose access to every project in this organization.' : 'They lose access to this organization immediately. Their sign-in account still exists but sees nothing here. Items assigned to them keep their assignment.'}</p>
         </Dialog>
       </td>
     </tr>
@@ -210,7 +253,7 @@ export default function MembersPage() {
   return (
     <>
       <PageHeader title="Members" description="Security rules re-check your own role on every change, whatever the page shows." />
-      {admin ? <InvitePanel /> : <PermissionNotice>Admins and owners invite people and change roles.</PermissionNotice>}
+      {admin ? <AddMemberPanel /> : <PermissionNotice>Admins and owners add people and change roles.</PermissionNotice>}
       <div className="section-gap">
         {loading ? (
           <Loading />

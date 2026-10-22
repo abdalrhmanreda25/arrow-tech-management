@@ -9,53 +9,12 @@ import { useOrg } from '@/components/providers/OrgProvider'
 import { api } from '@/lib/api'
 import { friendlyError } from '@/lib/errors'
 
-function VerifyEmail() {
-  const { user, resendVerification, refresh, signOut } = useAuth()
-  const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [pending, setPending] = useState(false)
-
-  const run = async (fn: () => Promise<void>, ok: string) => {
-    setPending(true)
-    setStatus(null)
-    try {
-      await fn()
-      setStatus({ type: 'success', text: ok })
-    } catch (err) {
-      setStatus({ type: 'error', text: friendlyError(err) })
-    } finally {
-      setPending(false)
-    }
-  }
-
-  return (
-    <AuthCard title="Verify your email" subtitle={`We sent a link to ${user?.email}. Open it, then come back here.`}>
-      {status ? <Alert type={status.type}>{status.text}</Alert> : null}
-      <div className="stack">
-        <button className="btn btn-accent btn-block" disabled={pending} onClick={() => run(refresh, 'Checked. If you verified, this page will continue.')}>
-          I have verified my email
-        </button>
-        <button className="btn btn-secondary btn-block" disabled={pending} onClick={() => run(resendVerification, 'A new link is on its way.')}>
-          Resend the link
-        </button>
-        <button className="btn btn-ghost btn-block" onClick={() => signOut()}>
-          Use a different account
-        </button>
-      </div>
-      <p className="muted small" style={{ marginTop: 16 }}>
-        A verified email is required to create an organization or accept an invite, so invites cannot be claimed by someone who only typed your address.
-      </p>
-    </AuthCard>
-  )
-}
-
 export default function Onboarding() {
   const { user, signOut } = useAuth()
   const { setOrgId } = useOrg()
   const [name, setName] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  if (!user?.emailVerified) return <VerifyEmail />
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -73,11 +32,11 @@ export default function Onboarding() {
 
   return (
     <AuthCard
-      title="Set up your organization"
-      subtitle="Create a workspace for your company, or open the invite link a teammate sent you."
+      title="No organization yet"
+      subtitle="Team accounts are added by an admin and land in their organization automatically. If you are setting Arrow Tech up for the first time, create the organization here; you will be its owner."
       footer={
         <>
-          Signed in as {user.email}.{' '}
+          Signed in as {user?.email}.{' '}
           <button type="button" className="text-link" onClick={() => signOut()}>
             Sign out
           </button>

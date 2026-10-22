@@ -29,10 +29,6 @@ service cloud.firestore {
       return request.auth.uid;
     }
 
-    function verified() {
-      return request.auth.token.email_verified == true;
-    }
-
     function myEmail() {
       return request.auth.token.email.lower();
     }
@@ -148,7 +144,7 @@ service cloud.firestore {
       allow read: if isMember(orgId);
 
       // Created in one batch with the creator's owner membership.
-      allow create: if signedIn() && verified()
+      allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['name', 'description', 'timeZone', 'ownerId', 'ownerIds', 'createdAt', 'createdBy'])
         && isStr(request.resource.data.name, 2, 80)
         && request.resource.data.ownerId == me()
@@ -176,8 +172,8 @@ service cloud.firestore {
             && d.joinedAt == request.time;
         }
 
-        // Invite acceptance: the invite (whose id is the secret link token) must
-        // be pending, unexpired, addressed to the caller's verified email, grant
+        // Invite acceptance: the invite (whose id is a 256-bit secret) must be
+        // pending, unexpired, addressed to the caller's account email, grant
         // this exact role, and be marked accepted in the same batch.
         function acceptingInvite(d) {
           let invitePath = /databases/$(database)/documents/orgs/$(orgId)/invites/$(d.inviteId);
@@ -208,7 +204,7 @@ service cloud.firestore {
 
         allow read: if isMember(orgId);
 
-        allow create: if signedIn() && verified() && validNewMember(request.resource.data)
+        allow create: if signedIn() && validNewMember(request.resource.data)
           && ((request.resource.data.role == 'owner' && !exists(orgPath(orgId))
                 && getAfter(orgPath(orgId)).data.ownerIds == [me()])
             || acceptingInvite(request.resource.data));
@@ -236,7 +232,7 @@ service cloud.firestore {
         allow list: if hasRole(orgId, 'admin');
         // The invited person can open their own invite by id (from the link).
         allow get: if hasRole(orgId, 'admin')
-          || (signedIn() && verified() && resource.data.email == myEmail());
+          || (signedIn() && resource.data.email == myEmail());
         allow create: if hasRole(orgId, 'admin')
           && inviteId.size() >= 32
           && request.resource.data.keys().hasOnly(['email', 'role', 'orgId', 'orgName', 'status', 'invitedBy', 'invitedByName', 'createdAt', 'expiresAt'])
@@ -256,7 +252,7 @@ service cloud.firestore {
             && changed().hasOnly(['status', 'revokedBy', 'revokedAt'])
             && request.resource.data.status == 'revoked'
             && request.resource.data.revokedBy == me())
-          || (signedIn() && verified()
+          || (signedIn()
             && resource.data.email == myEmail()
             && resource.data.status == 'pending'
             && resource.data.expiresAt > request.time

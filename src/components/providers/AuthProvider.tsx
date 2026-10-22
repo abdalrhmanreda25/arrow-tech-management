@@ -2,15 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  createUserWithEmailAndPassword,
-  GoogleAuthProvider,
+  EmailAuthProvider,
   onIdTokenChanged,
-  sendEmailVerification,
+  reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signOut as fbSignOut,
-  updateProfile,
+  updatePassword,
   type User,
 } from 'firebase/auth'
 import { auth, initAnalytics } from '@/lib/firebase'
@@ -28,10 +26,9 @@ interface AuthValue {
   user: Identity | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
-  signUp: (name: string, email: string, password: string) => Promise<void>
-  signInWithGoogle: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
-  resendVerification: () => Promise<void>
+  /** Firebase requires the current password again before changing it. */
+  changePassword: (current: string, next: string) => Promise<void>
   /** Reloads the account and forces a fresh ID token, so a just-verified email reaches the security rules. */
   refresh: () => Promise<void>
   signOut: () => Promise<void>
@@ -52,8 +49,6 @@ const toIdentity = (u: User): Identity => ({
   photoURL: u.photoURL,
   emailVerified: u.emailVerified,
 })
-
-const verifyLink = () => ({ url: `${window.location.origin}/login/?verified=1` })
 
 export default function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Identity | null>(null)
@@ -83,22 +78,14 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       async signIn(email, password) {
         await signInWithEmailAndPassword(auth(), email.trim(), password)
       },
-      async signUp(name, email, password) {
-        const cred = await createUserWithEmailAndPassword(auth(), email.trim(), password)
-        await updateProfile(cred.user, { displayName: name.trim() })
-        await ensureProfile(cred.user)
-        await sendEmailVerification(cred.user, verifyLink())
-        setUser(toIdentity(cred.user))
-      },
-      async signInWithGoogle() {
-        await signInWithPopup(auth(), new GoogleAuthProvider())
-      },
       async resetPassword(email) {
         await sendPasswordResetEmail(auth(), email.trim())
       },
-      async resendVerification() {
-        const current = auth().currentUser
-        if (current) await sendEmailVerification(current, verifyLink())
+      async changePassword(current, next) {
+        const u = auth().currentUser
+        if (!u?.email) throw new Error('You are signed out.')
+        await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, current))
+        await updatePassword(u, next)
       },
       refresh,
       async signOut() {

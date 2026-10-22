@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AuthCard from '@/components/AuthCard'
-import GoogleButton from '@/components/GoogleButton'
 import Alert from '@/components/ui/Alert'
 import Field from '@/components/ui/Field'
 import { useAuth } from '@/components/providers/AuthProvider'
@@ -14,7 +13,7 @@ import { friendlyError } from '@/lib/errors'
 const safeNext = (value: string | null) => (value && value.startsWith('/') && !value.startsWith('//') ? value : '/dashboard/')
 
 function LoginForm() {
-  const { user, signIn, signInWithGoogle } = useAuth()
+  const { user, signIn } = useAuth()
   const router = useRouter()
   const params = useSearchParams()
   const next = safeNext(params.get('next'))
@@ -48,13 +47,8 @@ function LoginForm() {
     <AuthCard
       title="Sign in"
       subtitle="Arrow Tech team management"
-      footer={
-        <>
-          New here? <Link className="text-link" href={`/signup/?next=${encodeURIComponent(next)}`}>Create an account</Link>
-        </>
-      }
+      footer={<>Accounts are created by your organization admin. Ask them if you need access.</>}
     >
-      {params.get('verified') ? <Alert type="success">Email verified. Sign in to continue.</Alert> : null}
       {error ? <Alert type="error">{error}</Alert> : null}
       <form className="stack" onSubmit={submit} noValidate>
         <Field label="Email">
@@ -67,8 +61,6 @@ function LoginForm() {
           {pending ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
-      <div className="divider">or</div>
-      <GoogleButton onClick={() => run(signInWithGoogle)} disabled={pending} />
       <p className="center muted small" style={{ marginTop: 16 }}>
         <Link className="text-link" href="/reset-password/">Forgot your password?</Link>
       </p>

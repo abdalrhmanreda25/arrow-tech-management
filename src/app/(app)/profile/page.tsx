@@ -15,8 +15,44 @@ import { auth, firebase } from '@/lib/firebase'
 import { friendlyError } from '@/lib/errors'
 import { ROLE_LABELS } from '@domain/roles'
 
+function PasswordForm({ onChange }: { onChange: (current: string, next: string) => Promise<void> }) {
+  const toast = useToaster()
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (next.length < 8) return setError('Use at least 8 characters.')
+    setPending(true)
+    setError(null)
+    try {
+      await onChange(current, next)
+      setCurrent('')
+      setNext('')
+      toast.success('Password changed')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <form className="stack" onSubmit={submit} style={{ marginTop: 16 }}>
+      <h3 className="small">Change password</h3>
+      <p className="muted small">If an admin created your account, replace the temporary password here.</p>
+      {error ? <Alert type="error">{error}</Alert> : null}
+      <Field label="Current password">{(p) => <input {...p} className="input" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />}</Field>
+      <Field label="New password" hint="At least 8 characters.">{(p) => <input {...p} className="input" type="password" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} />}</Field>
+      <div><button className="btn btn-secondary" disabled={pending || !current || !next}>{pending ? 'Saving...' : 'Change password'}</button></div>
+    </form>
+  )
+}
+
 export default function ProfilePage() {
-  const { user, refresh, resendVerification } = useAuth()
+  const { user, refresh, changePassword } = useAuth()
   const { memberships, member } = useOrg()
   const toast = useToaster()
   const me = member(user?.uid)
@@ -86,15 +122,8 @@ export default function ProfilePage() {
         <Panel title="Account">
           <dl className="detail-list">
             <div className="value-row"><dt>Email</dt><dd>{user?.email}</dd></div>
-            <div className="value-row">
-              <dt>Email verified</dt>
-              <dd>
-                {user?.emailVerified ? 'Yes' : (
-                  <button className="text-link" onClick={() => resendVerification().then(() => toast.success('Verification email sent'), toast.error)}>No, send link</button>
-                )}
-              </dd>
-            </div>
           </dl>
+          <PasswordForm onChange={changePassword} />
           <h3 className="small" style={{ margin: '16px 0 8px' }}>Organizations</h3>
           <ul className="stack-sm">
             {memberships.map((m) => (

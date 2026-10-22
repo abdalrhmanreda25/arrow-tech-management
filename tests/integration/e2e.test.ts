@@ -133,8 +133,31 @@ describe('end to end on the client SDK', () => {
     )
   })
 
+  it('lets an admin create a team account that can sign in at once', async () => {
+    const { provisionAccount } = await import('@/lib/provision')
+    const email = `dev${stamp}@arrow.test`
+    const res = await provisionAccount({ orgId, email, displayName: 'New Dev', role: 'manager', password: 'temp-pass-123', sendResetLink: false })
+    expect(res.status).toBe('created')
+    // The admin is still signed in as themselves.
+    expect(m.fb.auth().currentUser!.uid).toBe(ownerUid)
+    // The new person signs in with the temporary password and is a manager.
+    await signOut(m.fb.auth())
+    const cred = await signInWithEmailAndPassword(m.fb.auth(), email, 'temp-pass-123')
+    expect((await getDoc(m.refs.orgItem(orgId, 'members', cred.user.uid))).get('role')).toBe('manager')
+    // An admin cannot use this path to mint owners.
+    await as(OWNER)
+    await expect(provisionAccount({ orgId, email: `boss${stamp}@arrow.test`, displayName: 'Boss', role: 'owner', password: 'temp-pass-123', sendResetLink: false })).rejects.toBeTruthy()
+  })
+
+  it('gives an existing account a join link instead', async () => {
+    const { provisionAccount } = await import('@/lib/provision')
+    const res = await provisionAccount({ orgId, email: NEWBIE, displayName: 'Newbie', role: 'member', password: 'temp-pass-123', sendResetLink: false })
+    expect(res.status).toBe('existing')
+  })
+
   it('invites a teammate who joins with the invited role', async () => {
-    const { inviteId } = await m.api.createInvite({ orgId, email: NEWBIE, role: 'member' })
+    const pending = await getDocs(query(collection(m.fb.db(), 'orgs', orgId, 'invites')))
+    const inviteId = pending.docs.find((d) => d.get('email') === NEWBIE.toLowerCase() && d.get('status') === 'pending')!.id
     const newbieUid = await as(NEWBIE)
     expect(await m.api.previewInvite({ orgId, inviteId })).toMatchObject({ orgName: 'Arrow Tech', role: 'member', expired: false })
     await m.api.acceptInvite({ orgId, inviteId })

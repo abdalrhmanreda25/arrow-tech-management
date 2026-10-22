@@ -48,8 +48,9 @@ describe('organization creation', () => {
     await assertSucceeds(create(as(USERS.outsider), USERS.outsider, 'newOrg'))
   })
 
-  it('requires a verified email, the caller as owner, and both docs at once', async () => {
-    await assertFails(create(as(USERS.outsider, false), USERS.outsider, 'o1'))
+  it('requires the caller as sole owner and both docs at once', async () => {
+    // Accounts are created by admins, so email verification is not required.
+    await assertSucceeds(create(as(USERS.outsider, false), USERS.outsider, 'o1'))
     await assertFails(create(as(USERS.outsider), USERS.outsider, 'o2', { ownerIds: [USERS.outsider, USERS.member] }))
     await assertFails(create(as(USERS.outsider), USERS.outsider, 'o3', {}, 'admin'))
     await assertFails(setDoc(doc(as(USERS.outsider), 'orgs/o4'), { name: 'Solo', ownerId: USERS.outsider, ownerIds: [USERS.outsider], createdAt: serverTimestamp(), createdBy: USERS.outsider }))
@@ -84,12 +85,11 @@ describe('invites', () => {
     await assertFails(setDoc(doc(as(USERS.admin), `orgs/${ORG_A}/invites/${'d'.repeat(40)}`), invite({ expiresAt: Timestamp.fromMillis(Date.now() + 30 * 86_400_000) })))
   })
 
-  it('lets only the invited, verified address accept, once, with the invited role', async () => {
+  it('lets only the invited address accept, once, with the invited role', async () => {
     await admin((db) => setDoc(doc(db, `orgs/${ORG_A}/invites/${INVITE}`), invite()))
     await assertFails(getDoc(doc(as('stranger', true, 'stranger@example.com'), `orgs/${ORG_A}/invites/${INVITE}`)))
     await assertSucceeds(getDoc(doc(as('newbie', true, 'new@example.com'), `orgs/${ORG_A}/invites/${INVITE}`)))
     await assertFails(accept(as('stranger', true, 'stranger@example.com'), 'stranger'))
-    await assertFails(accept(as('newbie', false, 'new@example.com'), 'newbie'))
     await assertFails(accept(as('newbie', true, 'new@example.com'), 'newbie', 'admin'))
     await assertSucceeds(accept(as('newbie', true, 'new@example.com'), 'newbie'))
     // A second account with the same email cannot reuse it.

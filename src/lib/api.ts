@@ -70,8 +70,7 @@ interface MemberDoc {
 }
 
 async function createOrganization({ name, timeZone }: { name: string; timeZone?: string }) {
-  const me = await actor(true)
-  if (!me.emailVerified) throw new OpError('failed-precondition', 'Verify your email address before creating an organization.')
+  const me = await actor()
   const clean = name.trim()
   if (clean.length < 2 || clean.length > 80) throw new OpError('invalid-argument', 'Organization name must be 2-80 characters.')
   const orgRef = orgDoc(randomId(15))
@@ -148,13 +147,13 @@ async function revokeInvite({ orgId, inviteId }: { orgId: string; inviteId: stri
 }
 
 async function previewInvite({ orgId, inviteId }: { orgId: string; inviteId: string; token?: string }) {
-  await actor(true)
+  await actor()
   let snap
   try {
     snap = await getDoc(orgItem(orgId, 'invites', inviteId))
   } catch (err) {
     if ((err as { code?: string }).code === 'permission-denied') {
-      throw new OpError('permission-denied', 'This invite is for a different email address, or your email is not verified yet.')
+      throw new OpError('permission-denied', 'This invite is for a different email address.')
     }
     throw err
   }
@@ -170,8 +169,7 @@ async function previewInvite({ orgId, inviteId }: { orgId: string; inviteId: str
 }
 
 async function acceptInvite({ orgId, inviteId }: { orgId: string; inviteId: string; token?: string }) {
-  const me = await actor(true)
-  if (!me.emailVerified) throw new OpError('failed-precondition', 'Verify your email address before accepting an invite.')
+  const me = await actor()
   const inviteRef = orgItem(orgId, 'invites', inviteId)
   return runTransaction(db(), async (tx) => {
     const invite = await tx.get(inviteRef)
