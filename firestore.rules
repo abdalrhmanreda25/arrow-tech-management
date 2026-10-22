@@ -1,0 +1,687 @@
+rules_version = '2';
+
+// Arrow Tech management - Firestore rules.
+//
+// There is no server code: every write comes from the Firebase client SDK, so
+// these rules are the whole trust boundary.
+//
+// Tenancy: an org's data lives under /orgs/{orgId}. Access follows the
+// caller's member document /orgs/{orgId}/members/{uid}. Role thresholds match
+// src/domain/roles.ts:
+//   viewer 1 < member 2 < manager 3 < admin 4 < owner 5
+//
+// Multi-document invariants are enforced with getAfter()/existsAfter(), which
+// see the state the whole batch or transaction would produce:
+//   - org.ownerIds always equals the set of members whose role is owner,
+//     and is never empty;
+//   - a project has at most one active sprint;
+//   - every item change that moves an active sprint's scope or done points
+//     ships with a matching sprint history event, whose numbers the rules
+//     recompute from the item before and after the write.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function verified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function orgPath(orgId) {
+      return /databases/$(database)/documents/orgs/$(orgId);
+    }
+
+    function memberPath(orgId, uid) {
+      return /databases/$(database)/documents/orgs/$(orgId)/members/$(uid);
+    }
+
+    function sprintPath(orgId, sprintId) {
+      return /databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId);
+    }
+
+    function rankOf(role) {
+      return {'viewer': 1, 'member': 2, 'manager': 3, 'admin': 4, 'owner': 5}[role];
+    }
+
+    function isRoleName(role) {
+      return role in ['viewer', 'member', 'manager', 'admin', 'owner'];
+    }
+
+    function isMember(orgId) {
+      return signedIn()
+        && exists(memberPath(orgId, me()))
+        && get(memberPath(orgId, me())).data.status == 'active';
+    }
+
+    function myRole(orgId) {
+      return get(memberPath(orgId, me())).data.role;
+    }
+
+    function hasRole(orgId, minRole) {
+      return isMember(orgId) && rankOf(myRole(orgId)) >= rankOf(minRole);
+    }
+
+    // Owners grant anything; others only grant roles below their own.
+    function canGrant(orgId, role) {
+      return myRole(orgId) == 'owner' || rankOf(role) < rankOf(myRole(orgId));
+    }
+
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function unchanged(keys) {
+      return !changed().hasAny(keys);
+    }
+
+    function isStr(v, min, max) {
+      return v is string && v.size() >= min && v.size() <= max;
+    }
+
+    function optStr(data, key, max) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= max);
+    }
+
+    function isDay(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function optDay(data, key) {
+      return !(key in data) || data[key] == null || isDay(data[key]);
+    }
+
+    function validStats(s) {
+      return s is map
+        && s.keys().hasAll(['committedPoints', 'committedCount', 'scopePoints', 'scopeCount', 'completedPoints', 'completedCount'])
+        && s.committedPoints is number && s.committedPoints >= 0
+        && s.scopePoints is number && s.scopePoints >= 0
+        && s.completedPoints is number && s.completedPoints >= 0;
+    }
+
+    // Lets a user list their own memberships across orgs with a collection
+    // group query on members where uid == their uid. Nothing else.
+    match /{path=**}/members/{memberId} {
+      allow read: if signedIn() && resource.data.uid == me();
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && me() == uid;
+      allow create: if signedIn() && me() == uid
+        && request.resource.data.keys().hasOnly(['displayName', 'email', 'photoURL', 'title', 'timeZone', 'createdAt', 'updatedAt'])
+        && isStr(request.resource.data.displayName, 1, 80);
+      allow update: if signedIn() && me() == uid
+        && changed().hasOnly(['displayName', 'photoURL', 'title', 'timeZone', 'updatedAt', 'email'])
+        && isStr(request.resource.data.displayName, 1, 80)
+        && optStr(request.resource.data, 'title', 80);
+      allow delete: if false;
+    }
+
+    match /orgs/{orgId} {
+
+      // org.ownerIds may gain or lose exactly one uid (named in ownerChange),
+      // and only together with that member's role becoming / ceasing to be owner.
+      function ownersChange() {
+        let uid = request.resource.data.ownerChange;
+        let before = resource.data.ownerIds.toSet();
+        let after = request.resource.data.ownerIds.toSet();
+        let target = memberPath(orgId, uid);
+        return isMember(orgId)
+          && changed().hasOnly(['ownerIds', 'ownerChange'])
+          && uid is string
+          && request.resource.data.ownerIds.size() >= 1
+          && ((after == before.union([uid].toSet()) && !(uid in before)
+                && existsAfter(target) && getAfter(target).data.role == 'owner')
+            || (after == before.difference([uid].toSet()) && uid in before
+                && (!existsAfter(target) || getAfter(target).data.role != 'owner')));
+      }
+
+      allow read: if isMember(orgId);
+
+      // Created in one batch with the creator's owner membership.
+      allow create: if signedIn() && verified()
+        && request.resource.data.keys().hasOnly(['name', 'description', 'timeZone', 'ownerId', 'ownerIds', 'createdAt', 'createdBy'])
+        && isStr(request.resource.data.name, 2, 80)
+        && request.resource.data.ownerId == me()
+        && request.resource.data.ownerIds == [me()]
+        && request.resource.data.createdBy == me()
+        && request.resource.data.createdAt == request.time
+        && getAfter(memberPath(orgId, me())).data.role == 'owner';
+
+      allow update: if (hasRole(orgId, 'admin')
+          && changed().hasOnly(['name', 'description', 'timeZone', 'logoPath', 'updatedAt', 'updatedBy'])
+          && isStr(request.resource.data.name, 2, 80)
+          && request.resource.data.updatedBy == me())
+        || ownersChange();
+
+      allow delete: if false;
+
+      match /members/{uid} {
+        function validNewMember(d) {
+          return d.keys().hasOnly(['uid', 'orgId', 'orgName', 'role', 'status', 'email', 'displayName', 'photoURL', 'title', 'joinedAt', 'inviteId', 'invitedBy'])
+            && d.uid == me() && uid == me()
+            && d.orgId == orgId
+            && d.status == 'active'
+            && d.email == myEmail()
+            && isStr(d.displayName, 1, 80)
+            && d.joinedAt == request.time;
+        }
+
+        // Invite acceptance: the invite (whose id is the secret link token) must
+        // be pending, unexpired, addressed to the caller's verified email, grant
+        // this exact role, and be marked accepted in the same batch.
+        function acceptingInvite(d) {
+          let invitePath = /databases/$(database)/documents/orgs/$(orgId)/invites/$(d.inviteId);
+          let invite = get(invitePath).data;
+          return d.inviteId is string
+            && invite.status == 'pending'
+            && invite.email == myEmail()
+            && invite.expiresAt > request.time
+            && d.role == invite.role
+            && d.role != 'owner'
+            && getAfter(invitePath).data.status == 'accepted'
+            && getAfter(invitePath).data.acceptedBy == me();
+        }
+
+        function roleChange() {
+          let oldRole = resource.data.role;
+          let newRole = request.resource.data.role;
+          return hasRole(orgId, 'admin')
+            && uid != me()
+            && changed().hasOnly(['role', 'roleUpdatedAt', 'roleUpdatedBy'])
+            && request.resource.data.roleUpdatedBy == me()
+            && request.resource.data.roleUpdatedAt == request.time
+            && isRoleName(newRole)
+            && (myRole(orgId) == 'owner' || (rankOf(newRole) < rankOf(myRole(orgId)) && rankOf(oldRole) < rankOf(myRole(orgId))))
+            // Keeps org.ownerIds in step (see ownersChange).
+            && ((newRole == 'owner') == (uid in getAfter(orgPath(orgId)).data.ownerIds));
+        }
+
+        allow read: if isMember(orgId);
+
+        allow create: if signedIn() && verified() && validNewMember(request.resource.data)
+          && ((request.resource.data.role == 'owner' && !exists(orgPath(orgId))
+                && getAfter(orgPath(orgId)).data.ownerIds == [me()])
+            || acceptingInvite(request.resource.data));
+
+        allow update: if
+          // A member refreshes the profile fields cached on their own entry.
+          (isMember(orgId) && me() == uid
+            && changed().hasOnly(['displayName', 'photoURL', 'title'])
+            && isStr(request.resource.data.displayName, 1, 80))
+          || roleChange()
+          // An admin renaming the org refreshes the cached org name.
+          || (hasRole(orgId, 'admin')
+            && changed().hasOnly(['orgName'])
+            && request.resource.data.orgName == getAfter(orgPath(orgId)).data.name);
+
+        // Leaving, or removal by someone who outranks the member. An owner has
+        // to come off org.ownerIds in the same batch, which can never empty it.
+        allow delete: if isMember(orgId)
+          && (me() == uid
+            || (hasRole(orgId, 'admin') && (myRole(orgId) == 'owner' || rankOf(resource.data.role) < rankOf(myRole(orgId)))))
+          && !(uid in getAfter(orgPath(orgId)).data.ownerIds);
+      }
+
+      match /invites/{inviteId} {
+        allow list: if hasRole(orgId, 'admin');
+        // The invited person can open their own invite by id (from the link).
+        allow get: if hasRole(orgId, 'admin')
+          || (signedIn() && verified() && resource.data.email == myEmail());
+        allow create: if hasRole(orgId, 'admin')
+          && inviteId.size() >= 32
+          && request.resource.data.keys().hasOnly(['email', 'role', 'orgId', 'orgName', 'status', 'invitedBy', 'invitedByName', 'createdAt', 'expiresAt'])
+          && isStr(request.resource.data.email, 3, 254)
+          && request.resource.data.email == request.resource.data.email.lower()
+          && isRoleName(request.resource.data.role)
+          && request.resource.data.role != 'owner'
+          && canGrant(orgId, request.resource.data.role)
+          && request.resource.data.orgId == orgId
+          && request.resource.data.status == 'pending'
+          && request.resource.data.invitedBy == me()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt <= request.time + duration.value(7, 'd');
+        allow update: if (hasRole(orgId, 'admin')
+            && resource.data.status == 'pending'
+            && changed().hasOnly(['status', 'revokedBy', 'revokedAt'])
+            && request.resource.data.status == 'revoked'
+            && request.resource.data.revokedBy == me())
+          || (signedIn() && verified()
+            && resource.data.email == myEmail()
+            && resource.data.status == 'pending'
+            && resource.data.expiresAt > request.time
+            && changed().hasOnly(['status', 'acceptedBy', 'acceptedAt'])
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.acceptedBy == me()
+            && request.resource.data.acceptedAt == request.time
+            && existsAfter(memberPath(orgId, me())));
+        allow delete: if hasRole(orgId, 'admin');
+      }
+
+      // Append-only. Clients stamp themselves and the server time; nobody,
+      // owners included, can edit or delete an entry afterwards.
+      match /auditLogs/{logId} {
+        allow read: if hasRole(orgId, 'admin');
+        allow create: if signedIn()
+          && (exists(memberPath(orgId, me())) || existsAfter(memberPath(orgId, me())))
+          && request.resource.data.keys().hasOnly(['action', 'actorId', 'targetType', 'targetId', 'details', 'at'])
+          && isStr(request.resource.data.action, 3, 64)
+          && request.resource.data.actorId == me()
+          && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
+
+      match /notifications/{notificationId} {
+        allow read, delete: if isMember(orgId) && resource.data.recipientId == me();
+        allow update: if isMember(orgId) && resource.data.recipientId == me()
+          && changed().hasOnly(['readAt']);
+        // Members notify other members; the actor and time are stamped.
+        allow create: if signedIn()
+          && (exists(memberPath(orgId, me())) || existsAfter(memberPath(orgId, me())))
+          && request.resource.data.keys().hasOnly(['recipientId', 'type', 'title', 'body', 'link', 'actorId', 'readAt', 'createdAt'])
+          && request.resource.data.actorId == me()
+          && request.resource.data.recipientId != me()
+          && exists(memberPath(orgId, request.resource.data.recipientId))
+          && request.resource.data.readAt == null
+          && request.resource.data.createdAt == request.time
+          && isStr(request.resource.data.title, 1, 300)
+          && optStr(request.resource.data, 'body', 500)
+          && request.resource.data.type in ['assigned', 'comment', 'item_done', 'role_changed', 'invite_accepted', 'sprint_started', 'sprint_completed'];
+      }
+
+      match /teams/{teamId} {
+        allow read: if isMember(orgId);
+        allow create, update: if hasRole(orgId, 'manager')
+          && request.resource.data.keys().hasOnly(['name', 'description', 'memberIds', 'leadId', 'color', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+          && isStr(request.resource.data.name, 1, 80)
+          && request.resource.data.memberIds is list
+          && request.resource.data.memberIds.size() <= 100;
+        allow delete: if hasRole(orgId, 'manager');
+      }
+
+      match /projects/{projectId} {
+        function validProject(d) {
+          return d.keys().hasOnly(['name', 'key', 'description', 'teamId', 'status', 'archived', 'startDate', 'targetDate',
+                                   'itemSeq', 'activeSprintId', 'board', 'leadId', 'color', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+            && isStr(d.name, 1, 80)
+            && d.key is string && d.key.matches('^[A-Z][A-Z0-9]{1,9}$')
+            && d.status in ['planned', 'active', 'on_hold', 'completed']
+            && optStr(d, 'description', 4000)
+            && optDay(d, 'startDate') && optDay(d, 'targetDate');
+        }
+
+        // activeSprintId follows sprint transitions made in the same transaction:
+        // set only when a planned sprint of this project becomes active while no
+        // other sprint is active; cleared only when the active one completes.
+        function activeSprintChange() {
+          let next = request.resource.data.activeSprintId;
+          let prev = resource.data.activeSprintId;
+          return hasRole(orgId, 'manager')
+            && changed().hasOnly(['activeSprintId', 'updatedAt', 'updatedBy'])
+            && request.resource.data.updatedBy == me()
+            && ((next != null
+                  && get(sprintPath(orgId, next)).data.status == 'planned'
+                  && getAfter(sprintPath(orgId, next)).data.status == 'active'
+                  && getAfter(sprintPath(orgId, next)).data.projectId == projectId
+                  && (prev == null || !exists(sprintPath(orgId, prev)) || get(sprintPath(orgId, prev)).data.status != 'active'))
+              || (next == null && prev != null
+                  && getAfter(sprintPath(orgId, prev)).data.status == 'completed'));
+        }
+
+        allow read: if isMember(orgId);
+        // The document id is the project key, so keys are unique per org.
+        allow create: if hasRole(orgId, 'manager')
+          && validProject(request.resource.data)
+          && request.resource.data.key == projectId
+          && request.resource.data.itemSeq == 0
+          && request.resource.data.activeSprintId == null
+          && request.resource.data.createdBy == me();
+        // Managers edit settings; any member may bump the item counter by exactly
+        // one, which is how new items get their key (see items).
+        allow update: if (hasRole(orgId, 'manager')
+            && validProject(request.resource.data)
+            && unchanged(['key', 'itemSeq', 'activeSprintId', 'createdAt', 'createdBy'])
+            && request.resource.data.updatedBy == me())
+          || (hasRole(orgId, 'member')
+            && changed().hasOnly(['itemSeq'])
+            && request.resource.data.itemSeq == resource.data.itemSeq + 1)
+          || activeSprintChange();
+        allow delete: if false;
+      }
+
+      // Sprint accounting, mirrored from src/domain/sprint.ts and events.ts:
+      // epics never count; missing estimates count as zero.
+      function counts(d) {
+        return d != null && d.type != 'epic';
+      }
+
+      function pts(d) {
+        return d.get('storyPoints', null) is number ? d.storyPoints : 0;
+      }
+
+      function inSprint(d, sprintId) {
+        return counts(d) && d.get('sprintId', null) == sprintId;
+      }
+
+      function scopeOf(d, sprintId) {
+        return inSprint(d, sprintId) ? pts(d) : 0;
+      }
+
+      function doneOf(d, sprintId) {
+        return inSprint(d, sprintId) && d.status == 'done' ? pts(d) : 0;
+      }
+
+      function countOf(d, sprintId) {
+        return inSprint(d, sprintId) ? 1 : 0;
+      }
+
+      function doneCountOf(d, sprintId) {
+        return inSprint(d, sprintId) && d.status == 'done' ? 1 : 0;
+      }
+
+      function sprintActive(sprintId) {
+        return exists(sprintPath(orgId, sprintId)) && get(sprintPath(orgId, sprintId)).data.status == 'active';
+      }
+
+      function moves(before, after, sprintId) {
+        return scopeOf(before, sprintId) != scopeOf(after, sprintId)
+          || doneOf(before, sprintId) != doneOf(after, sprintId)
+          || countOf(before, sprintId) != countOf(after, sprintId)
+          || doneCountOf(before, sprintId) != doneCountOf(after, sprintId);
+      }
+
+      function eventPath(sprintId, eventId) {
+        return /databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId)/events/$(eventId);
+      }
+
+      // An item write that changes an active sprint's numbers must create that
+      // sprint's history event {itemId}-{version} in the same batch.
+      function historyKept(before, after, eventId) {
+        let bs = before == null ? null : before.get('sprintId', null);
+        let as = after == null ? null : after.get('sprintId', null);
+        return (bs == null || !sprintActive(bs) || !moves(before, after, bs) || existsAfter(eventPath(bs, eventId)))
+          && (as == null || as == bs || !sprintActive(as) || !moves(before, after, as) || existsAfter(eventPath(as, eventId)));
+      }
+
+      match /items/{itemId} {
+        function projectPath(d) {
+          return /databases/$(database)/documents/orgs/$(orgId)/projects/$(d.projectId);
+        }
+
+        function validItem(d) {
+          return d.keys().hasOnly(['projectId', 'key', 'seq', 'type', 'title', 'description', 'status', 'priority',
+                                   'storyPoints', 'assigneeId', 'reporterId', 'epicId', 'parentId', 'sprintId', 'teamId',
+                                   'labels', 'rank', 'boardRank', 'dueDate', 'startDate', 'targetDate', 'color',
+                                   'carryoverCount', 'lastCarriedOverFrom', 'version', 'completedAt',
+                                   'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+            && d.type in ['epic', 'story', 'task', 'bug']
+            && isStr(d.title, 1, 200)
+            && d.status in ['todo', 'in_progress', 'in_review', 'done']
+            && d.priority in ['low', 'medium', 'high', 'urgent']
+            && (d.get('storyPoints', null) == null || (d.storyPoints is number && d.storyPoints >= 0 && d.storyPoints <= 100))
+            && optStr(d, 'description', 20000)
+            && (!('labels' in d) || (d.labels is list && d.labels.size() <= 20))
+            && optDay(d, 'dueDate') && optDay(d, 'startDate') && optDay(d, 'targetDate')
+            && d.version is int
+            // Epics are containers and never sit in a sprint.
+            && (d.type != 'epic' || d.get('sprintId', null) == null);
+        }
+
+        // Items join planned or active sprints of their own project only.
+        function sprintOk(d) {
+          return d.get('sprintId', null) == null || (
+            exists(sprintPath(orgId, d.sprintId))
+            && get(sprintPath(orgId, d.sprintId)).data.status in ['planned', 'active']
+            && get(sprintPath(orgId, d.sprintId)).data.projectId == d.projectId);
+        }
+
+        // Unfinished work leaving a completed sprint: only the items listed at
+        // completion, only to the recorded destination, and only once.
+        function carryover() {
+          let from = resource.data.get('sprintId', null);
+          let sprint = get(sprintPath(orgId, from)).data;
+          let target = sprint.carryover.targetSprintId;
+          return hasRole(orgId, 'manager')
+            && from != null
+            && sprint.status == 'completed'
+            && itemId in sprint.carryover.itemIds
+            && request.resource.data.get('sprintId', null) == target
+            && (target == null || get(sprintPath(orgId, target)).data.status == 'planned')
+            && request.resource.data.carryoverCount == resource.data.get('carryoverCount', 0) + 1
+            && request.resource.data.lastCarriedOverFrom == from
+            && changed().hasOnly(['sprintId', 'carryoverCount', 'lastCarriedOverFrom', 'version', 'updatedAt', 'updatedBy'])
+            && request.resource.data.version == resource.data.version + 1
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.updatedBy == me();
+        }
+
+        allow read: if isMember(orgId);
+
+        // Key allocation: the same transaction bumps the project's itemSeq to
+        // exactly this item's seq, so racing creators conflict and retry.
+        allow create: if hasRole(orgId, 'member')
+          && validItem(request.resource.data)
+          && request.resource.data.version == 1
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.createdBy == me()
+          && request.resource.data.updatedBy == me()
+          && request.resource.data.get('carryoverCount', 0) == 0
+          && exists(projectPath(request.resource.data))
+          && get(projectPath(request.resource.data)).data.itemSeq == request.resource.data.seq - 1
+          && getAfter(projectPath(request.resource.data)).data.itemSeq == request.resource.data.seq
+          && request.resource.data.key == get(projectPath(request.resource.data)).data.key + '-' + string(request.resource.data.seq)
+          && sprintOk(request.resource.data)
+          && historyKept(null, request.resource.data, itemId + '-1');
+
+        // Optimistic concurrency: version moves forward by exactly one, so a
+        // client writing from a stale copy is rejected. updatedAt is the commit
+        // time, which orders sprint history.
+        allow update: if (hasRole(orgId, 'member')
+            && validItem(request.resource.data)
+            && request.resource.data.version == resource.data.version + 1
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.updatedBy == me()
+            && unchanged(['projectId', 'key', 'seq', 'createdAt', 'createdBy', 'carryoverCount', 'lastCarriedOverFrom'])
+            && (!changed().hasAny(['sprintId']) || sprintOk(request.resource.data))
+            && historyKept(resource.data, request.resource.data, itemId + '-' + string(request.resource.data.version)))
+          || carryover();
+
+        allow delete: if (hasRole(orgId, 'manager')
+            || (hasRole(orgId, 'member') && resource.data.createdBy == me()))
+          && historyKept(resource.data, null, itemId + '-' + string(resource.data.version + 1));
+
+        match /comments/{commentId} {
+          function itemCreator() {
+            return get(/databases/$(database)/documents/orgs/$(orgId)/items/$(itemId)).data.createdBy == me();
+          }
+
+          allow read: if isMember(orgId);
+          allow create: if hasRole(orgId, 'member')
+            && request.resource.data.keys().hasOnly(['text', 'authorId', 'authorName', 'createdAt'])
+            && request.resource.data.authorId == me()
+            && isStr(request.resource.data.text, 1, 5000);
+          allow update: if hasRole(orgId, 'member') && resource.data.authorId == me()
+            && changed().hasOnly(['text', 'editedAt'])
+            && isStr(request.resource.data.text, 1, 5000);
+          // The item's creator may clear its comments when deleting the item.
+          allow delete: if hasRole(orgId, 'manager')
+            || (hasRole(orgId, 'member') && (resource.data.authorId == me() || itemCreator()));
+        }
+
+        match /attachments/{attachmentId} {
+          allow read: if isMember(orgId);
+          allow create: if hasRole(orgId, 'member')
+            && request.resource.data.keys().hasOnly(['name', 'path', 'size', 'contentType', 'uploadedBy', 'uploadedAt'])
+            && request.resource.data.uploadedBy == me()
+            && request.resource.data.path == 'orgs/' + orgId + '/items/' + itemId + '/' + attachmentId
+            && request.resource.data.size is int && request.resource.data.size <= 10 * 1024 * 1024;
+          allow update: if false;
+          allow delete: if hasRole(orgId, 'manager')
+            || (hasRole(orgId, 'member') && (resource.data.uploadedBy == me()
+                || get(/databases/$(database)/documents/orgs/$(orgId)/items/$(itemId)).data.createdBy == me()));
+        }
+      }
+
+      match /sprints/{sprintId} {
+        function validSprint(d) {
+          return d.keys().hasOnly(['projectId', 'name', 'goal', 'status', 'startDate', 'endDate', 'capacity',
+                                   'createdAt', 'createdBy', 'updatedAt', 'updatedBy',
+                                   'startedAt', 'startedBy', 'completedAt', 'completedBy', 'stats', 'historyComplete', 'carryover'])
+            && isStr(d.name, 1, 80)
+            && optStr(d, 'goal', 1000)
+            && isDay(d.startDate) && isDay(d.endDate)
+            && d.endDate >= d.startDate
+            && (!('capacity' in d) || d.capacity is map);
+        }
+
+        function projectOf() {
+          return /databases/$(database)/documents/orgs/$(orgId)/projects/$(resource.data.projectId);
+        }
+
+        // planned -> active, with the project pointer, the start event and the
+        // commitment snapshot written in the same transaction.
+        function starting() {
+          return hasRole(orgId, 'manager')
+            && resource.data.status == 'planned'
+            && request.resource.data.status == 'active'
+            && changed().hasOnly(['status', 'startedAt', 'startedBy', 'stats', 'updatedAt', 'updatedBy'])
+            && request.resource.data.startedAt == request.time
+            && request.resource.data.startedBy == me()
+            && request.resource.data.updatedBy == me()
+            && validStats(request.resource.data.stats)
+            && getAfter(projectOf()).data.activeSprintId == sprintId
+            && existsAfter(/databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId)/events/start)
+            && existsAfter(/databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId)/snapshots/start);
+        }
+
+        // active -> completed, recording where unfinished work goes.
+        function completing() {
+          let c = request.resource.data.carryover;
+          return hasRole(orgId, 'manager')
+            && resource.data.status == 'active'
+            && request.resource.data.status == 'completed'
+            && changed().hasOnly(['status', 'completedAt', 'completedBy', 'stats', 'carryover', 'historyComplete', 'updatedAt', 'updatedBy'])
+            && request.resource.data.completedAt == request.time
+            && request.resource.data.completedBy == me()
+            && request.resource.data.updatedBy == me()
+            && validStats(request.resource.data.stats)
+            && c.mode in ['backlog', 'sprint']
+            && c.itemIds is list && c.itemIds.size() <= 400
+            && ((c.mode == 'backlog' && c.targetSprintId == null)
+              || (c.mode == 'sprint' && c.targetSprintId is string && c.targetSprintId != sprintId
+                  && get(sprintPath(orgId, c.targetSprintId)).data.status == 'planned'
+                  && get(sprintPath(orgId, c.targetSprintId)).data.projectId == resource.data.projectId))
+            && getAfter(projectOf()).data.activeSprintId == null
+            && existsAfter(/databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId)/events/complete)
+            && existsAfter(/databases/$(database)/documents/orgs/$(orgId)/sprints/$(sprintId)/snapshots/final);
+        }
+
+        allow read: if isMember(orgId);
+        allow create: if hasRole(orgId, 'manager')
+          && validSprint(request.resource.data)
+          && request.resource.data.status == 'planned'
+          && !request.resource.data.keys().hasAny(['stats', 'startedAt', 'completedAt', 'carryover'])
+          && request.resource.data.createdBy == me()
+          && exists(/databases/$(database)/documents/orgs/$(orgId)/projects/$(request.resource.data.projectId));
+        allow update: if (hasRole(orgId, 'manager')
+            && validSprint(request.resource.data)
+            && changed().hasOnly(['name', 'goal', 'startDate', 'endDate', 'capacity', 'updatedAt', 'updatedBy'])
+            && request.resource.data.updatedBy == me()
+            // Dates are fixed once a sprint starts; the burndown is measured against them.
+            && (resource.data.status == 'planned' || !changed().hasAny(['startDate', 'endDate']))
+            && resource.data.status != 'completed')
+          || starting()
+          || completing();
+        allow delete: if hasRole(orgId, 'manager') && resource.data.status == 'planned';
+
+        match /events/{eventId} {
+          function base(e) {
+            return e.keys().hasOnly(['type', 'at', 'actorId', 'itemId', 'itemKey', 'itemTitle', 'scopeDelta', 'countDelta',
+                                     'completedDelta', 'completedCountDelta', 'scopeAfter', 'completedAfter', 'before', 'after'])
+              && e.at == request.time
+              && e.actorId == me();
+          }
+
+          // History entry for one item write. Every number is recomputed here
+          // from the item before and after the write, so it cannot be forged.
+          function itemEvent(e) {
+            let itemPath = /databases/$(database)/documents/orgs/$(orgId)/items/$(e.itemId);
+            let before = exists(itemPath) ? get(itemPath).data : null;
+            let after = existsAfter(itemPath) ? getAfter(itemPath).data : null;
+            let version = after != null ? after.version : before.version + 1;
+            return hasRole(orgId, 'member')
+              && get(sprintPath(orgId, sprintId)).data.status == 'active'
+              && e.itemId is string
+              && eventId == e.itemId + '-' + string(version)
+              && e.scopeDelta == scopeOf(after, sprintId) - scopeOf(before, sprintId)
+              && e.completedDelta == doneOf(after, sprintId) - doneOf(before, sprintId)
+              && e.countDelta == countOf(after, sprintId) - countOf(before, sprintId)
+              && e.completedCountDelta == doneCountOf(after, sprintId) - doneCountOf(before, sprintId)
+              && (e.countDelta == 1 ? e.type == 'item_added'
+                : e.countDelta == -1 ? e.type == 'item_removed'
+                : e.type in ['estimate_changed', 'item_completed', 'item_reopened']);
+          }
+
+          allow read: if isMember(orgId);
+          allow create: if signedIn() && base(request.resource.data) && (
+            (eventId == 'start' && request.resource.data.type == 'sprint_started'
+              && hasRole(orgId, 'manager')
+              && get(sprintPath(orgId, sprintId)).data.status == 'planned'
+              && getAfter(sprintPath(orgId, sprintId)).data.status == 'active')
+            || (eventId == 'complete' && request.resource.data.type == 'sprint_completed'
+              && hasRole(orgId, 'manager')
+              && get(sprintPath(orgId, sprintId)).data.status == 'active'
+              && getAfter(sprintPath(orgId, sprintId)).data.status == 'completed')
+            || (!(eventId in ['start', 'complete']) && itemEvent(request.resource.data)));
+          allow update, delete: if false;
+        }
+
+        match /snapshots/{snapshotId} {
+          allow read: if isMember(orgId);
+          allow create: if hasRole(orgId, 'manager')
+            && request.resource.data.takenAt == request.time
+            && ((snapshotId == 'start'
+                && get(sprintPath(orgId, sprintId)).data.status == 'planned'
+                && getAfter(sprintPath(orgId, sprintId)).data.status == 'active')
+              || (snapshotId == 'final'
+                && get(sprintPath(orgId, sprintId)).data.status == 'active'
+                && getAfter(sprintPath(orgId, sprintId)).data.status == 'completed'));
+          allow update, delete: if false;
+        }
+      }
+
+      match /ceremonies/{ceremonyId} {
+        function validCeremony(d) {
+          return d.keys().hasOnly(['sprintId', 'projectId', 'type', 'title', 'scheduledAt', 'durationMinutes', 'notes',
+                                   'decisions', 'actionItems', 'attendeeIds', 'status', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+            && d.type in ['planning', 'standup', 'review', 'retrospective', 'refinement']
+            && d.status in ['scheduled', 'held', 'cancelled']
+            && optStr(d, 'notes', 20000)
+            && optStr(d, 'decisions', 10000)
+            && (!('actionItems' in d) || (d.actionItems is list && d.actionItems.size() <= 50));
+        }
+
+        allow read: if isMember(orgId);
+        allow create: if hasRole(orgId, 'member')
+          && validCeremony(request.resource.data)
+          && request.resource.data.createdBy == me();
+        allow update: if hasRole(orgId, 'member')
+          && validCeremony(request.resource.data)
+          && unchanged(['createdBy', 'createdAt', 'sprintId', 'projectId'])
+          && request.resource.data.updatedBy == me();
+        allow delete: if hasRole(orgId, 'manager')
+          || (hasRole(orgId, 'member') && resource.data.createdBy == me());
+      }
+    }
+  }
+}

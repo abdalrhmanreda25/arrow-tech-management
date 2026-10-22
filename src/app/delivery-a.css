@@ -1,0 +1,26 @@
+/* Backlog, board and item detail. Brand tokens only. */
+.selection-bar { position: sticky; bottom: var(--space-4); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-4); padding: 10px var(--space-4); border-radius: var(--radius-lg); border: 1px solid var(--accent-border); background: var(--surface); box-shadow: var(--shadow-lg); font-size: var(--text-sm); }
+.selection-bar .input { width: auto; }
+.row-moves { display: inline-flex; gap: 2px; }
+.row-moves .icon-btn { width: 26px; height: 26px; min-height: 26px; }
+.backlog-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.epic-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.epic-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: var(--text-sm); color: var(--text-muted); text-align: left; cursor: pointer; }
+.epic-btn:hover { background: var(--surface-hover); color: var(--text); }
+.epic-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.epic-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: none; }
+.board-card-actions { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.board-card-actions select { min-height: 26px; padding: 2px 6px; font-size: var(--text-xs); width: auto; }
+.board-drop-end { min-height: 24px; flex: 1; border-radius: var(--radius-md); }
+.board-drop-end[data-over="true"] { box-shadow: inset 0 2px 0 var(--accent); }
+.board-card[data-drop="before"] { box-shadow: 0 -2px 0 var(--accent); }
+.wip-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.attach-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.attach-list li { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
+.attach-list .attach-name { flex: 1; min-width: 0; }
+.item-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.label-chip { display: inline-flex; padding: 1px 8px; border-radius: var(--radius-full); background: var(--surface-hover); border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+@media (max-width: 960px) {
+  .backlog-layout { grid-template-columns: minmax(0, 1fr); }
+  .wip-form { grid-template-columns: minmax(0, 1fr); }
+}

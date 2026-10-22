@@ -1,0 +1,42 @@
+/* Reports, calendar and roadmap additions. Brand tokens only. */
+
+/* Segmented toggle */
+.segmented { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-hover); }
+.segmented button { padding: 4px 10px; border: 0; border-radius: calc(var(--radius-md) - 2px); background: transparent; font: inherit; font-size: var(--text-sm); color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow-xs); }
+
+/* Reports */
+.rep-kpis { display: flex; flex-wrap: wrap; gap: var(--space-6); }
+.rep-kpis strong { font-size: var(--text-lg); }
+.rep-subhead { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-3); }
+.data-table tfoot th { padding: 8px 12px; text-align: left; font-size: var(--text-sm); border-top: 1px solid var(--border); }
+
+/* Calendar */
+.cal-title { font-size: var(--text-lg); min-width: 11ch; text-align: center; }
+.cal-day.is-sprint { background: color-mix(in srgb, #7c3aed 6%, var(--surface)); }
+.cal-day.is-sprint.is-outside { background: color-mix(in srgb, #7c3aed 6%, var(--bg-subtle)); }
+.cal-more { align-self: flex-start; font-size: 11px; }
+.agenda { list-style: none; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.agenda > li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: var(--space-3); padding: 10px var(--space-4); border-bottom: 1px solid var(--border); }
+.agenda > li:last-child { border-bottom: 0; }
+.agenda-date { font-size: var(--text-sm); font-weight: 600; }
+.agenda-date.is-today { color: var(--accent-text); }
+.agenda-events { list-style: none; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.agenda-events li { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.agenda-events .cal-chip { flex: 0 1 auto; min-width: 0; font-size: var(--text-xs); }
+
+/* Roadmap */
+.rm { --rm-label: 240px; }
+.rm .roadmap-head > div:first-child { border-left: 0; }
+.rm-corner { font-weight: 600; }
+.rm .roadmap-label { flex-direction: row; }
+.rm .roadmap-label .progress { margin-top: 4px; height: 4px; }
+.rm-empty { position: absolute; top: 14px; left: 8px; }
+.roadmap-bar.is-done { opacity: 0.6; }
+
+@media (max-width: 760px) {
+  .rm { --rm-label: 150px; }
+  .agenda > li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .cal-grid-view .cal-chip { display: none; }
+  .cal-grid-view .cal-day { min-height: 48px; }
+}

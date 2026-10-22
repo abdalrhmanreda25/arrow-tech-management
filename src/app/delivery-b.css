@@ -1,0 +1,36 @@
+/* Sprint list and sprint detail. Brand tokens only. */
+.sprint-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.sprint-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-4) var(--space-5); }
+.sprint-card h3 { font-size: var(--text-base); font-weight: 600; }
+.sprint-card h3 a { color: var(--text); text-decoration: none; }
+.sprint-card h3 a:hover { text-decoration: underline; }
+.sprint-card .sprint-stats { display: flex; gap: var(--space-5); font-size: var(--text-sm); }
+.sprint-card .sprint-stats div { display: flex; flex-direction: column; }
+.sprint-section-title { margin: var(--space-6) 0 var(--space-3); font-size: var(--text-sm); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.plan-row { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; }
+.plan-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-4); }
+.plan-totals > div { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.plan-totals .subtle { font-size: var(--text-xs); }
+.plan-totals strong { font-size: var(--text-lg); }
+.cap-table input.input { width: 90px; min-height: 32px; padding: 4px 8px; }
+.cap-table .is-over { color: var(--danger); font-weight: 600; }
+.ceremony-card { padding: var(--space-4) var(--space-5); }
+.ceremony-card + .ceremony-card { margin-top: var(--space-3); }
+.action-items { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: var(--space-2); }
+.action-items li { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.action-items li.is-done span { text-decoration: line-through; color: var(--text-subtle); }
+.action-edit { display: grid; grid-template-columns: minmax(0, 1fr) 180px auto auto; gap: var(--space-2); align-items: center; }
+.radio-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.snapshot-list { list-style: none; font-size: var(--text-sm); }
+.snapshot-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.snapshot-list li:last-child { border-bottom: 0; }
+@media (max-width: 960px) {
+  .plan-grid { grid-template-columns: minmax(0, 1fr); }
+  .plan-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .sprint-card { grid-template-columns: minmax(0, 1fr); }
+  .sprint-card .sprint-stats { flex-wrap: wrap; gap: var(--space-3); }
+  .action-edit { grid-template-columns: minmax(0, 1fr); }
+}
