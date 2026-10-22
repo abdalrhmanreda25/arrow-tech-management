@@ -8,16 +8,14 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
   Timestamp,
   updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore'
-import { deleteObject, getDownloadURL, ref as storageRef, uploadBytesResumable } from 'firebase/storage'
-import { db, firebase } from '../firebase'
+import { db } from '../firebase'
 import type { ActionItem, Ceremony, CeremonyType } from '../types'
-import { attachmentsCol, commentsCol } from './items'
+import { commentsCol, linksCol } from './items'
 import { stageNotification } from '../audit'
 import { orgCol, orgItem } from './refs'
 
@@ -44,43 +42,26 @@ export async function addComment(orgId: string, itemId: string, text: string, us
 
 export const deleteComment = (orgId: string, itemId: string, commentId: string) => deleteDoc(doc(commentsCol(orgId, itemId), commentId))
 
-/* ------------------------------------------------------------ attachments */
+/* ------------------------------------------------------------------ links */
 
-export const attachmentsQuery = (orgId: string, itemId: string) => query(attachmentsCol(orgId, itemId), orderBy('uploadedAt', 'desc'), limit(50))
+export const linksQuery = (orgId: string, itemId: string) => query(linksCol(orgId, itemId), orderBy('addedAt', 'desc'), limit(40))
 
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
-
-export function uploadAttachment(orgId: string, itemId: string, file: File, uid: string, onProgress?: (fraction: number) => void) {
-  if (file.size > MAX_ATTACHMENT_BYTES) return Promise.reject(new Error('Files can be at most 10 MB.'))
-  const meta = doc(attachmentsCol(orgId, itemId))
-  const path = `orgs/${orgId}/items/${itemId}/${meta.id}`
-  const task = uploadBytesResumable(storageRef(firebase().storage, path), file, {
-    contentType: file.type || 'application/octet-stream',
-    contentDisposition: `attachment; filename="${encodeURIComponent(file.name)}"`,
-    customMetadata: { uploadedBy: uid, name: file.name },
-  })
-  return new Promise<void>((resolve, reject) => {
-    task.on(
-      'state_changed',
-      (s) => onProgress?.(s.bytesTransferred / Math.max(1, s.totalBytes)),
-      reject,
-      () => {
-        setDoc(meta, { name: file.name.slice(0, 200), path, size: file.size, contentType: file.type || 'application/octet-stream', uploadedBy: uid, uploadedAt: serverTimestamp() })
-          .then(resolve)
-          .catch(reject)
-      },
-    )
-  })
+/** Only http(s) links are accepted, so a stored link can never run script when opened. */
+export function normaliseUrl(raw: string) {
+  const text = raw.trim()
+  const withScheme = /^https?:\/\//i.test(text) ? text : `https://${text}`
+  const url = new URL(withScheme)
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Only web links (https://) can be added.')
+  return url.toString()
 }
 
-export const attachmentUrl = (path: string) => getDownloadURL(storageRef(firebase().storage, path))
-
-export async function deleteAttachment(orgId: string, itemId: string, attachmentId: string, path: string) {
-  await deleteObject(storageRef(firebase().storage, path)).catch((err) => {
-    if (err?.code !== 'storage/object-not-found') throw err
-  })
-  await deleteDoc(doc(attachmentsCol(orgId, itemId), attachmentId))
+export async function addLink(orgId: string, itemId: string, input: { title: string; url: string }, uid: string) {
+  const url = normaliseUrl(input.url)
+  const title = (input.title.trim() || new URL(url).hostname).slice(0, 200)
+  await addDoc(linksCol(orgId, itemId), { title, url, addedBy: uid, addedAt: serverTimestamp() })
 }
+
+export const deleteLink = (orgId: string, itemId: string, linkId: string) => deleteDoc(doc(linksCol(orgId, itemId), linkId))
 
 /* ------------------------------------------------------------- ceremonies */
 

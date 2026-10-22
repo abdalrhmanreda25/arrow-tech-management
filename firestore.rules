@@ -514,16 +514,19 @@ service cloud.firestore {
             || (hasRole(orgId, 'member') && (resource.data.authorId == me() || itemCreator()));
         }
 
-        match /attachments/{attachmentId} {
+        // Links to outside documents (Drive, Figma, GitHub). Only web URLs.
+        match /links/{linkId} {
           allow read: if isMember(orgId);
           allow create: if hasRole(orgId, 'member')
-            && request.resource.data.keys().hasOnly(['name', 'path', 'size', 'contentType', 'uploadedBy', 'uploadedAt'])
-            && request.resource.data.uploadedBy == me()
-            && request.resource.data.path == 'orgs/' + orgId + '/items/' + itemId + '/' + attachmentId
-            && request.resource.data.size is int && request.resource.data.size <= 10 * 1024 * 1024;
+            && request.resource.data.keys().hasOnly(['title', 'url', 'addedBy', 'addedAt'])
+            && isStr(request.resource.data.title, 1, 200)
+            && isStr(request.resource.data.url, 8, 2000)
+            && request.resource.data.url.matches('^https?://.+')
+            && request.resource.data.addedBy == me()
+            && request.resource.data.addedAt == request.time;
           allow update: if false;
           allow delete: if hasRole(orgId, 'manager')
-            || (hasRole(orgId, 'member') && (resource.data.uploadedBy == me()
+            || (hasRole(orgId, 'member') && (resource.data.addedBy == me()
                 || get(/databases/$(database)/documents/orgs/$(orgId)/items/$(itemId)).data.createdBy == me()));
         }
       }

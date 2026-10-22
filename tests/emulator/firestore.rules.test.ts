@@ -206,6 +206,15 @@ describe('work items', () => {
     await assertSucceeds(deleteDoc(doc(as(USERS.manager), `orgs/${ORG_A}/items/i2`)))
   })
 
+  it('accepts web links only, credited to their author', async () => {
+    const link = (uid: string, url: string) => ({ title: 'Design', url, addedBy: uid, addedAt: serverTimestamp() })
+    await assertSucceeds(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/links/l1`), link(USERS.member, 'https://figma.com/file/x')))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/links/l2`), link(USERS.member, 'javascript:alert(1)')))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/links/l3`), link(USERS.owner, 'https://x.test')))
+    await assertFails(setDoc(doc(as(USERS.viewer), `orgs/${ORG_A}/items/i1/links/l4`), link(USERS.viewer, 'https://x.test')))
+    await assertFails(getDoc(doc(as(USERS.otherOwner), `orgs/${ORG_A}/items/i1/links/l1`)))
+  })
+
   it('checks comment authorship', async () => {
     const c = { text: 'Looks good', authorName: 'M', createdAt: new Date() }
     await assertSucceeds(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/comments/c1`), { ...c, authorId: USERS.member }))

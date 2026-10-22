@@ -17,25 +17,14 @@ import { useToaster } from '@/components/providers/ToastProvider'
 import { useLiveDoc, useLiveQuery } from '@/lib/hooks'
 import { deleteItem, epicItemsQuery, epicsQuery, saveItem, type ItemPatch } from '@/lib/data/items'
 import { sprintsQuery } from '@/lib/data/sprints'
-import {
-  addComment,
-  attachmentsQuery,
-  attachmentUrl,
-  commentsQuery,
-  deleteAttachment,
-  deleteComment,
-  MAX_ATTACHMENT_BYTES,
-  uploadAttachment,
-} from '@/lib/data/activity'
+import { addComment, addLink, commentsQuery, deleteComment, deleteLink, linksQuery } from '@/lib/data/activity'
 import { orgItem } from '@/lib/data/refs'
 import { parseLabels } from '@/lib/board'
 import { ITEM_TYPES, PRIORITIES, STATUSES } from '@/lib/constants'
 import { ConflictError, friendlyError } from '@/lib/errors'
 import { formatDateTime, pts, relativeTime } from '@/lib/format'
-import type { Attachment, Comment, Item, ItemStatus, ItemType, Priority, Sprint } from '@/lib/types'
+import type { ItemLink, Comment, Item, ItemStatus, ItemType, Priority, Sprint } from '@/lib/types'
 import '../../delivery-a.css'
-
-const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain,text/csv,text/markdown,application/zip,application/json,.docx,.xlsx,.pptx'
 
 interface FormState {
   title: string
@@ -161,70 +150,49 @@ function Comments({ orgId, item, canWrite, canModerate }: { orgId: string; item:
   )
 }
 
-function Attachments({ orgId, item, canWrite, canModerate }: { orgId: string; item: Item; canWrite: boolean; canModerate: boolean }) {
+function Links({ orgId, item, canWrite, canModerate }: { orgId: string; item: Item; canWrite: boolean; canModerate: boolean }) {
   const { user } = useAuth()
   const { memberName } = useOrg()
   const toast = useToaster()
-  const files = useLiveQuery<Attachment>(() => attachmentsQuery(orgId, item.id), `a:${orgId}:${item.id}`)
-  const [progress, setProgress] = useState<number | null>(null)
-  const input = useRef<HTMLInputElement>(null)
+  const links = useLiveQuery<ItemLink>(() => linksQuery(orgId, item.id), `l:${orgId}:${item.id}`)
+  const [url, setUrl] = useState('')
+  const [title, setTitle] = useState('')
+  const [pending, setPending] = useState(false)
 
-  const upload = async (file: File | undefined) => {
-    if (!file || !user) return
-    if (file.size > MAX_ATTACHMENT_BYTES) return toast.error('Files can be at most 10 MB.')
-    setProgress(0)
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    setPending(true)
     try {
-      await uploadAttachment(orgId, item.id, file, user.uid, setProgress)
-      toast.success(`Uploaded ${file.name}`)
+      await addLink(orgId, item.id, { title, url }, user.uid)
+      setUrl('')
+      setTitle('')
     } catch (err) {
-      const code = (err as { code?: string }).code
-      toast.error(code === 'storage/unauthorized' ? 'Upload refused. Allowed: images, PDF, text, CSV, Markdown, ZIP, JSON and Office files up to 10 MB.' : err)
+      toast.error(err instanceof TypeError ? 'That does not look like a web address.' : err)
     } finally {
-      setProgress(null)
-      if (input.current) input.current.value = ''
-    }
-  }
-
-  const open = async (a: Attachment) => {
-    try {
-      window.open(await attachmentUrl(a.path), '_blank', 'noopener,noreferrer')
-    } catch (err) {
-      toast.error(err)
+      setPending(false)
     }
   }
 
   return (
-    <Panel
-      title="Attachments"
-      actions={
-        canWrite ? (
-          <>
-            <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => upload(e.target.files?.[0])} />
-            <button type="button" className="btn btn-ghost btn-sm" disabled={progress !== null} onClick={() => input.current?.click()}>
-              <Icon name="paperclip" /> Attach
-            </button>
-          </>
-        ) : null
-      }
-    >
-      {progress !== null ? <Progress value={Math.round(progress * 100)} max={100} label="Upload progress" /> : null}
-      {files.loading ? (
+    <Panel title="Links">
+      {links.loading ? (
         <Loading rows={1} />
-      ) : files.error ? (
-        <ErrorState error={files.error} />
-      ) : !files.data.length ? (
-        <p className="muted small">No files. Up to 10 MB each.</p>
+      ) : links.error ? (
+        <ErrorState error={links.error} />
+      ) : !links.data.length ? (
+        <p className="muted small">No links yet. Add designs, documents or pull requests (Google Drive, Figma, GitHub...).</p>
       ) : (
         <ul className="attach-list">
-          {files.data.map((a) => (
-            <li key={a.id}>
-              <Icon name="file" />
-              <button type="button" className="text-link attach-name truncate" onClick={() => open(a)} title={a.name}>
-                {a.name}
-              </button>
-              <span className="xsmall subtle nowrap">{Math.max(1, Math.round(a.size / 1024))} KB · {memberName(a.uploadedBy)}</span>
-              {a.uploadedBy === user?.uid || canModerate ? (
-                <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Delete ${a.name}`} onClick={() => deleteAttachment(orgId, item.id, a.id, a.path).catch(toast.error)}>
+          {links.data.map((l) => (
+            <li key={l.id}>
+              <Icon name="paperclip" />
+              <a className="text-link attach-name truncate" href={l.url} target="_blank" rel="noopener noreferrer nofollow" title={l.url}>
+                {l.title}
+              </a>
+              <span className="xsmall subtle nowrap">{memberName(l.addedBy)}</span>
+              {l.addedBy === user?.uid || canModerate ? (
+                <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Remove ${l.title}`} onClick={() => deleteLink(orgId, item.id, l.id).catch(toast.error)}>
                   <Icon name="trash" size={14} />
                 </button>
               ) : null}
@@ -232,6 +200,15 @@ function Attachments({ orgId, item, canWrite, canModerate }: { orgId: string; it
           ))}
         </ul>
       )}
+      {canWrite ? (
+        <form className="stack-sm" onSubmit={add} style={{ marginTop: 12 }}>
+          <input className="input input--sm" type="url" inputMode="url" required placeholder="https://..." aria-label="Link address" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input input--sm" maxLength={200} placeholder="Title (optional)" aria-label="Link title" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" disabled={pending || !url.trim()}>Add</button>
+          </div>
+        </form>
+      ) : null}
     </Panel>
   )
 }
@@ -507,7 +484,7 @@ function ItemView({ id }: { id: string }) {
             ) : null}
             <p className="xsmall subtle" style={{ marginTop: 12 }}>Version {item.version}. Saves are rejected if someone else saved first.</p>
           </Panel>
-          {orgId ? <Attachments orgId={orgId} item={item} canWrite={canWrite} canModerate={canModerate} /> : null}
+          {orgId ? <Links orgId={orgId} item={item} canWrite={canWrite} canModerate={canModerate} /> : null}
         </aside>
       </div>
 

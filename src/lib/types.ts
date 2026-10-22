@@ -168,13 +168,12 @@ export interface Comment extends WithId {
   editedAt?: Timestamp
 }
 
-export interface Attachment extends WithId {
-  name: string
-  path: string
-  size: number
-  contentType: string
-  uploadedBy: string
-  uploadedAt?: Timestamp
+/** A link on an item (Drive, Figma, GitHub...). Files are not stored, so no Cloud Storage. */
+export interface ItemLink extends WithId {
+  title: string
+  url: string
+  addedBy: string
+  addedAt?: Timestamp
 }
 
 export interface AppNotification extends WithId {

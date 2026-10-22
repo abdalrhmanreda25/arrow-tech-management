@@ -7,7 +7,7 @@ calendar, roadmap, notifications, an audit log and CSV export.
 
 It is a Next.js 15 static export that talks to Firebase directly through the
 client SDK. There is no server code and no Cloud Functions, so it runs on the free
-Spark plan. Security is enforced entirely by `firestore.rules` and `storage.rules`,
+Spark plan. Security is enforced entirely by `firestore.rules`,
 including the multi-document invariants (owners, one active sprint per project,
 sprint history), which the rules check with `getAfter()`/`existsAfter()`. The look
 comes from the arrowtech.online design system: `src/app/brand.css` is copied from
@@ -18,7 +18,7 @@ that site.
 | Layer | Choice |
 | --- | --- |
 | Web | Next.js 15 (App Router, `output: 'export'`), React 19, TypeScript, Recharts |
-| Data | Cloud Firestore (persistent local cache), Cloud Storage |
+| Data | Cloud Firestore (persistent local cache). No Cloud Storage: items hold links, not files |
 | Auth | Firebase Authentication, email/password. No public sign-up: admins create accounts |
 | Server | None. Firebase client SDK only; rules are the trust boundary |
 | Tests | Vitest, `@firebase/rules-unit-testing`, Firebase Emulator Suite |
@@ -31,7 +31,7 @@ Requirements: Node 22, pnpm, Java 17+ (21 recommended) for the emulators, and `f
 pnpm install
 
 # Run everything locally against emulators (no cloud project touched)
-pnpm emulators                      # terminal 1: auth, firestore, storage, UI at :4005
+pnpm emulators                      # terminal 1: auth, firestore, UI at :4005
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-arrow-tech pnpm dev:emulators   # terminal 2: http://localhost:3000
 ```
 
@@ -46,7 +46,7 @@ public web config is in `.env.production` and in `src/lib/firebase.ts`.
 ```bash
 pnpm lint              # eslint + tsc
 pnpm test:unit         # domain maths: roles, transitions, history entries, reports, capacity, CSV, calendar
-pnpm test:emulator     # Firestore + Storage rules, including org creation, invites, owners, sprints, forged history
+pnpm test:emulator     # Firestore rules, including org creation, invites, owners, sprints, forged history
 pnpm test:integration  # real Auth-emulator users drive src/lib/api.ts and the data layer through the rules
 pnpm test              # all three
 pnpm build             # static export in out/
@@ -65,7 +65,7 @@ src/lib/api.ts           org, invite, role, member and sprint lifecycle operatio
 src/lib/data/            items (with sprint history), sprints, org, activity; hooks, errors
 src/domain/              pure TypeScript: roles, sprint transitions, history entries, reports,
                          capacity, CSV. The rules mirror the same thresholds and maths.
-firestore.rules  storage.rules  firestore.indexes.json
+firestore.rules  firestore.indexes.json
 tests/unit  tests/emulator  tests/integration
 ```
 
@@ -79,7 +79,7 @@ orgs/{orgId}                             name, timeZone, ownerId, memberCount
   teams/{teamId}
   projects/{KEY}                         doc id is the project key (unique per org); itemSeq counter
   items/{itemId}                         epic | story | task | bug; key ARW-12; version; sprintId
-    comments/{id}  attachments/{id}
+    comments/{id}  links/{id}             links to Drive/Figma/GitHub (https only)
   sprints/{sprintId}                     status, dates, capacity, stats
     events/{itemId}-{version}            sprint history, written with each item change (immutable)
     snapshots/start  snapshots/final     commitment and closing record                 (immutable)
@@ -161,21 +161,19 @@ The repo is configured for the `arrow-tech-managment` Firebase project (`.fireba
 1. **Plan.** The free Spark plan is enough; there are no Cloud Functions.
 2. **Authentication.** Enable Email/Password (Google is not used). Under Settings →
    Authorized domains, add the hosting domain(s).
-3. **Firestore** in Native mode and **Storage** must exist (create them in the console).
+3. **Firestore** in Native mode must exist. Cloud Storage is not used (it needs the Blaze plan on new projects).
 4. Sign in with an account that has Owner or Editor on the project, then deploy:
 
    ```bash
    firebase login
-   pnpm deploy:rules        # firestore rules + indexes, storage rules
+   pnpm deploy:rules        # firestore rules + indexes
    pnpm deploy:hosting      # optional: builds out/ and deploys Firebase Hosting
    ```
 
    Index builds take a few minutes. Until they finish, list views that need them show a
    "missing index" message.
-5. **Storage cross-service rules.** `storage.rules` reads membership from Firestore. On the
-   first `deploy:rules`, accept the prompt that grants Storage permission to read Firestore.
-6. **App Check (recommended).** Register a reCAPTCHA Enterprise provider and enforce App
-   Check for Firestore and Storage so only this web app can call them.
+5. **App Check (recommended).** Register a reCAPTCHA Enterprise provider and enforce App
+   Check for Firestore so only this web app can call it.
 
 ### Vercel (production: https://arrow-tech-management.vercel.app)
 
@@ -190,7 +188,7 @@ The repo is configured for the `arrow-tech-managment` Firebase project (`.fireba
    links fail on domains that are not listed. Vercel preview URLs
    (`...-git-...vercel.app`) are not covered; test sign-in on production or localhost.
 4. Rules are not deployed by Vercel. Deploy them separately with `pnpm deploy:rules`
-   whenever `firestore.rules`, `storage.rules` or `firestore.indexes.json` change.
+   whenever `firestore.rules` or `firestore.indexes.json` change.
 
 Any other static host can serve `out/` the same way.
 

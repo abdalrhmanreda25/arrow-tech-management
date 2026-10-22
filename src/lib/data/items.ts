@@ -12,10 +12,9 @@ import {
   writeBatch,
   type Transaction,
 } from 'firebase/firestore'
-import { deleteObject, ref as storageRef } from 'firebase/storage'
 import { sprintEventsForWrite } from '@domain/events'
 import type { SprintItemFields } from '@domain/types'
-import { db, firebase } from '../firebase'
+import { db } from '../firebase'
 import { ConflictError } from '../errors'
 import type { Item, ItemStatus, ItemType, Priority } from '../types'
 import { orgCol, orgItem, withId } from './refs'
@@ -278,21 +277,16 @@ async function saveItemsInChunks(orgId: string, itemIds: string[], patch: ItemPa
   }
 }
 
-/** Deletes an item with its comments and attachments, recording sprint history and an audit entry. */
+/** Deletes an item with its comments and links, recording sprint history and an audit entry. */
 export async function deleteItem(orgId: string, itemId: string, uid: string) {
-  const [comments, attachments] = await Promise.all([
+  const [comments, links] = await Promise.all([
     getDocs(query(commentsCol(orgId, itemId), limit(450))),
-    getDocs(query(attachmentsCol(orgId, itemId), limit(100))),
+    getDocs(query(linksCol(orgId, itemId), limit(40))),
   ])
-  for (const a of attachments.docs) {
-    await deleteObject(storageRef(firebase().storage, a.get('path'))).catch((err) => {
-      if (err?.code !== 'storage/object-not-found') throw err
-    })
-  }
   const cleanup = writeBatch(db())
   comments.forEach((c) => cleanup.delete(c.ref))
-  attachments.forEach((a) => cleanup.delete(a.ref))
-  if (!comments.empty || !attachments.empty) await cleanup.commit()
+  links.forEach((l) => cleanup.delete(l.ref))
+  if (!comments.empty || !links.empty) await cleanup.commit()
 
   const ref = orgItem(orgId, 'items', itemId)
   await runTransaction(db(), async (tx) => {
@@ -350,4 +344,4 @@ export async function getSprintItems(orgId: string, sprintId: string) {
 }
 
 export const commentsCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'comments')
-export const attachmentsCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'attachments')
+export const linksCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'links')

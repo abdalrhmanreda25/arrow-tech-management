@@ -9,12 +9,12 @@
     "lint": "eslint . && tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --project unit",
-    "test:emulator": "firebase emulators:exec --only auth,firestore,storage --project demo-arrow-tech \"vitest run --project emulator\"",
+    "test:emulator": "firebase emulators:exec --only auth,firestore --project demo-arrow-tech \"vitest run --project emulator\"",
     "test": "pnpm test:unit && pnpm test:emulator && pnpm test:integration",
     "emulators": "firebase emulators:start --project demo-arrow-tech",
-    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
     "deploy:hosting": "pnpm build && firebase deploy --only hosting",
-    "test:integration": "firebase emulators:exec --only auth,firestore,storage --project demo-arrow-tech \"vitest run --project integration\""
+    "test:integration": "firebase emulators:exec --only auth,firestore --project demo-arrow-tech \"vitest run --project integration\""
   },
   "license": "UNLICENSED",
   "devEngines": {

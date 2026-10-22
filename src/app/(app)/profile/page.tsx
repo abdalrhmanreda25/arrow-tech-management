@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from 'react'
 import { updateProfile as updateAuthProfile } from 'firebase/auth'
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import PageHeader from '@/components/ui/PageHeader'
 import Field from '@/components/ui/Field'
 import Alert from '@/components/ui/Alert'
@@ -11,7 +10,7 @@ import { useAuth } from '@/components/providers/AuthProvider'
 import { useOrg } from '@/components/providers/OrgProvider'
 import { useToaster } from '@/components/providers/ToastProvider'
 import { updateMyProfile } from '@/lib/data/org'
-import { auth, firebase } from '@/lib/firebase'
+import { auth } from '@/lib/firebase'
 import { friendlyError } from '@/lib/errors'
 import { ROLE_LABELS } from '@domain/roles'
 
@@ -82,24 +81,6 @@ export default function ProfilePage() {
     }
   }
 
-  const upload = async (file: File | undefined) => {
-    if (!file) return
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return setError('Use a PNG, JPEG or WebP image.')
-    if (file.size > 2 * 1024 * 1024) return setError('Images can be at most 2 MB.')
-    setPending(true)
-    setError(null)
-    try {
-      const r = storageRef(firebase().storage, `users/${user!.uid}/avatar/photo`)
-      await uploadBytes(r, file, { contentType: file.type })
-      await save({ displayName: name.trim() || user!.displayName, title, photoURL: await getDownloadURL(r) })
-      toast.success('Photo updated')
-    } catch (err) {
-      setError(friendlyError(err))
-    } finally {
-      setPending(false)
-    }
-  }
-
   return (
     <>
       <PageHeader title="Profile" description="Your name and title are shown to teammates in every organization you belong to." />
@@ -109,10 +90,6 @@ export default function ProfilePage() {
             {error ? <Alert type="error">{error}</Alert> : null}
             <div className="row">
               <Avatar name={name || user?.displayName || ''} uid={user?.uid} src={user?.photoURL} size={56} />
-              <label className="btn btn-secondary btn-sm">
-                Change photo
-                <input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => upload(e.target.files?.[0])} />
-              </label>
             </div>
             <Field label="Display name">{(p) => <input {...p} className="input" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
             <Field label="Title" optional hint="For example: Frontend engineer">{(p) => <input {...p} className="input" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}</Field>

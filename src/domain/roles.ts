@@ -27,8 +27,8 @@ export function atLeast(role: Role | null | undefined, min: Role): boolean {
 }
 
 /**
- * Minimum role for each action. firestore.rules and storage.rules encode the
- * same thresholds; tests/rules check the two stay in step.
+ * Minimum role for each action. firestore.rules encodes the same thresholds,
+ * and the emulator tests check the two stay in step.
  */
 export const PERMISSIONS = {
   read: 'viewer',

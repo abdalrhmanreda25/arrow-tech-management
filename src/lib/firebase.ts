@@ -11,12 +11,11 @@ import {
   persistentMultipleTabManager,
   type Firestore,
 } from 'firebase/firestore'
-import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage'
 
 /**
  * Public web configuration for the arrow-tech-managment Firebase project.
  * These values ship in the bundle by design. Access control lives in
- * firestore.rules and storage.rules, never here.
+ * firestore.rules, never here.
  */
 export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyBACBvt8V-AhgkrWf7EHCCj6yNw_OBkxYc',
@@ -34,7 +33,6 @@ interface Services {
   app: FirebaseApp
   auth: Auth
   db: Firestore
-  storage: FirebaseStorage
 }
 
 // Kept on globalThis so hot reload and repeated imports reuse one instance;
@@ -59,15 +57,13 @@ export function firebase(): Services {
     db = getFirestore(app)
   }
   const auth = getAuth(app)
-  const storage = getStorage(app)
 
   if (USE_EMULATORS) {
     connectAuthEmulator(auth, 'http://127.0.0.1:9095', { disableWarnings: true })
     connectFirestoreEmulator(db, '127.0.0.1', 8085)
-    connectStorageEmulator(storage, '127.0.0.1', 9195)
   }
 
-  holder[KEY] = { app, auth, db, storage }
+  holder[KEY] = { app, auth, db }
   return holder[KEY]
 }
 
