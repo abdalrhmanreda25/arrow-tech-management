@@ -168,6 +168,16 @@ export interface Comment extends WithId {
   editedAt?: Timestamp
 }
 
+/** Screenshot stored inline as a compressed JPEG data URL. */
+export interface ItemImage extends WithId {
+  name: string
+  dataUrl: string
+  width: number
+  height: number
+  addedBy: string
+  addedAt?: Timestamp
+}
+
 /** A link on an item (Drive, Figma, GitHub...). Files are not stored, so no Cloud Storage. */
 export interface ItemLink extends WithId {
   title: string

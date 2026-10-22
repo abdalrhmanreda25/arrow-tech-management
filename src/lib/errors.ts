@@ -64,7 +64,9 @@ export function friendlyError(err: unknown): string {
   const message = (err as Error)?.message
   // Our own operations throw readable messages; Firestore internals do not.
   if (message && !/^\[?firebase|internal assertion/i.test(message)) return message.replace(/^Firebase: /, '')
-  return 'Something went wrong. Try again.'
+  // Keep the technical detail visible so it can be reported.
+  const detail = [code, message].filter(Boolean).join(': ').slice(0, 300)
+  return detail ? `Something went wrong (${detail}). Try again.` : 'Something went wrong. Try again.'
 }
 
 /** Firestore's missing-index errors carry a console link that creates the index in one click. */

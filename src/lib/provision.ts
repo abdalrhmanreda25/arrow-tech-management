@@ -19,6 +19,8 @@ export interface NewAccount {
   orgId: string
   email: string
   displayName: string
+  /** Job title shown to teammates, e.g. "Frontend engineer". */
+  title?: string
   role: Role
   password: string
   /** Also email a link so the person can choose their own password. */
@@ -37,6 +39,7 @@ export interface NewAccount {
 export async function provisionAccount(input: NewAccount) {
   const email = input.email.trim().toLowerCase()
   const displayName = input.displayName.trim()
+  const title = (input.title ?? '').trim().slice(0, 80)
   if (displayName.length < 1 || displayName.length > 80) throw new Error('Enter the person’s name (up to 80 characters).')
   if (input.password.length < 8) throw new Error('Use a temporary password of at least 8 characters.')
 
@@ -68,7 +71,7 @@ export async function provisionAccount(input: NewAccount) {
     const invite = doc(secondaryDb, 'orgs', input.orgId, 'invites', inviteId)
     const snapshot = await getDoc(invite)
     const batch = writeBatch(secondaryDb)
-    batch.set(doc(secondaryDb, 'users', uid), { displayName, email, photoURL: null, title: '', createdAt: serverTimestamp() })
+    batch.set(doc(secondaryDb, 'users', uid), { displayName, email, photoURL: null, title, createdAt: serverTimestamp() })
     batch.set(doc(secondaryDb, 'orgs', input.orgId, 'members', uid), {
       uid,
       orgId: input.orgId,
@@ -77,6 +80,7 @@ export async function provisionAccount(input: NewAccount) {
       status: 'active',
       email,
       displayName,
+      title,
       joinedAt: serverTimestamp(),
       inviteId,
       invitedBy: snapshot.get('invitedBy'),

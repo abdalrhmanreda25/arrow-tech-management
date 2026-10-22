@@ -45,3 +45,12 @@ describe('dates', () => {
     expect(dayKey(Date.parse('2026-06-01T22:30:00Z'), 'Africa/Cairo')).toBe('2026-06-02')
   })
 })
+
+describe('fitWithin', () => {
+  it('keeps small images and scales large ones by their longest side', async () => {
+    const { fitWithin } = await import('@/lib/image')
+    expect(fitWithin(800, 600, 1600)).toEqual({ width: 800, height: 600 })
+    expect(fitWithin(3200, 1800, 1600)).toEqual({ width: 1600, height: 900 })
+    expect(fitWithin(1000, 4000, 1600)).toEqual({ width: 400, height: 1600 })
+  })
+})

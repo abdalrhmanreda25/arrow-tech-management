@@ -136,14 +136,16 @@ describe('end to end on the client SDK', () => {
   it('lets an admin create a team account that can sign in at once', async () => {
     const { provisionAccount } = await import('@/lib/provision')
     const email = `dev${stamp}@arrow.test`
-    const res = await provisionAccount({ orgId, email, displayName: 'New Dev', role: 'manager', password: 'temp-pass-123', sendResetLink: false })
+    const res = await provisionAccount({ orgId, email, displayName: 'New Dev', title: 'Frontend engineer', role: 'manager', password: 'temp-pass-123', sendResetLink: false })
     expect(res.status).toBe('created')
     // The admin is still signed in as themselves.
     expect(m.fb.auth().currentUser!.uid).toBe(ownerUid)
     // The new person signs in with the temporary password and is a manager.
     await signOut(m.fb.auth())
     const cred = await signInWithEmailAndPassword(m.fb.auth(), email, 'temp-pass-123')
-    expect((await getDoc(m.refs.orgItem(orgId, 'members', cred.user.uid))).get('role')).toBe('manager')
+    const created = await getDoc(m.refs.orgItem(orgId, 'members', cred.user.uid))
+    expect(created.get('role')).toBe('manager')
+    expect(created.get('title')).toBe('Frontend engineer')
     // An admin cannot use this path to mint owners.
     await as(OWNER)
     await expect(provisionAccount({ orgId, email: `boss${stamp}@arrow.test`, displayName: 'Boss', role: 'owner', password: 'temp-pass-123', sendResetLink: false })).rejects.toBeTruthy()

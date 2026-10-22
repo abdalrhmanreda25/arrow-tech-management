@@ -96,6 +96,13 @@ service cloud.firestore {
       return !(key in data) || data[key] == null || isDay(data[key]);
     }
 
+    // Profile photos are small JPEG data URLs made in the browser (no Cloud Storage).
+    function validPhoto(d) {
+      return !('photoURL' in d) || d.photoURL == null
+        || (d.photoURL is string && d.photoURL.size() <= 140000
+            && d.photoURL.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$'));
+    }
+
     function validStats(s) {
       return s is map
         && s.keys().hasAll(['committedPoints', 'committedCount', 'scopePoints', 'scopeCount', 'completedPoints', 'completedCount'])
@@ -114,11 +121,13 @@ service cloud.firestore {
       allow read: if signedIn() && me() == uid;
       allow create: if signedIn() && me() == uid
         && request.resource.data.keys().hasOnly(['displayName', 'email', 'photoURL', 'title', 'timeZone', 'createdAt', 'updatedAt'])
-        && isStr(request.resource.data.displayName, 1, 80);
+        && isStr(request.resource.data.displayName, 1, 80)
+        && validPhoto(request.resource.data);
       allow update: if signedIn() && me() == uid
         && changed().hasOnly(['displayName', 'photoURL', 'title', 'timeZone', 'updatedAt', 'email'])
         && isStr(request.resource.data.displayName, 1, 80)
-        && optStr(request.resource.data, 'title', 80);
+        && optStr(request.resource.data, 'title', 80)
+        && validPhoto(request.resource.data);
       allow delete: if false;
     }
 
@@ -169,6 +178,7 @@ service cloud.firestore {
             && d.status == 'active'
             && d.email == myEmail()
             && isStr(d.displayName, 1, 80)
+            && validPhoto(d)
             && d.joinedAt == request.time;
         }
 
@@ -213,7 +223,8 @@ service cloud.firestore {
           // A member refreshes the profile fields cached on their own entry.
           (isMember(orgId) && me() == uid
             && changed().hasOnly(['displayName', 'photoURL', 'title'])
-            && isStr(request.resource.data.displayName, 1, 80))
+            && isStr(request.resource.data.displayName, 1, 80)
+            && validPhoto(request.resource.data))
           || roleChange()
           // An admin renaming the org refreshes the cached org name.
           || (hasRole(orgId, 'admin')
@@ -512,6 +523,26 @@ service cloud.firestore {
           // The item's creator may clear its comments when deleting the item.
           allow delete: if hasRole(orgId, 'manager')
             || (hasRole(orgId, 'member') && (resource.data.authorId == me() || itemCreator()));
+        }
+
+        // Screenshots, compressed in the browser and stored inline as JPEG data
+        // URLs (no Cloud Storage). Each stays well under the 1 MiB document limit.
+        match /images/{imageId} {
+          allow read: if isMember(orgId);
+          allow create: if hasRole(orgId, 'member')
+            && request.resource.data.keys().hasOnly(['name', 'dataUrl', 'width', 'height', 'addedBy', 'addedAt'])
+            && isStr(request.resource.data.name, 1, 200)
+            && request.resource.data.dataUrl is string
+            && request.resource.data.dataUrl.size() <= 700000
+            && request.resource.data.dataUrl.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$')
+            && request.resource.data.width is int && request.resource.data.width <= 2000
+            && request.resource.data.height is int && request.resource.data.height <= 2000
+            && request.resource.data.addedBy == me()
+            && request.resource.data.addedAt == request.time;
+          allow update: if false;
+          allow delete: if hasRole(orgId, 'manager')
+            || (hasRole(orgId, 'member') && (resource.data.addedBy == me()
+                || get(/databases/$(database)/documents/orgs/$(orgId)/items/$(itemId)).data.createdBy == me()));
         }
 
         // Links to outside documents (Drive, Figma, GitHub). Only web URLs.

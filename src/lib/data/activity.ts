@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import type { ActionItem, Ceremony, CeremonyType } from '../types'
-import { commentsCol, linksCol } from './items'
+import { commentsCol, imagesCol, linksCol } from './items'
 import { stageNotification } from '../audit'
 import { orgCol, orgItem } from './refs'
 
@@ -62,6 +62,16 @@ export async function addLink(orgId: string, itemId: string, input: { title: str
 }
 
 export const deleteLink = (orgId: string, itemId: string, linkId: string) => deleteDoc(doc(linksCol(orgId, itemId), linkId))
+
+/* ------------------------------------------------------------ screenshots */
+
+export const imagesQuery = (orgId: string, itemId: string, n = 6) => query(imagesCol(orgId, itemId), orderBy('addedAt'), limit(n))
+
+export async function addImage(orgId: string, itemId: string, image: { name: string; dataUrl: string; width: number; height: number }, uid: string) {
+  await addDoc(imagesCol(orgId, itemId), { ...image, name: image.name.slice(0, 200) || 'Screenshot', addedBy: uid, addedAt: serverTimestamp() })
+}
+
+export const deleteImage = (orgId: string, itemId: string, imageId: string) => deleteDoc(doc(imagesCol(orgId, itemId), imageId))
 
 /* ------------------------------------------------------------- ceremonies */
 

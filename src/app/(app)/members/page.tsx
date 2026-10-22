@@ -42,6 +42,7 @@ function AddMemberPanel() {
   const invites = useLiveQuery<Invite>(() => (orgId ? pendingInvitesQuery(orgId) : null), `inv:${orgId}`)
   const grantable = ROLES.filter((r) => r !== 'owner' && role && canAssignRole(role, null, r).ok).reverse()
   const [name, setName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [email, setEmail] = useState('')
   const [newRole, setNewRole] = useState<Role>('member')
   const [password, setPassword] = useState(tempPassword)
@@ -58,7 +59,7 @@ function AddMemberPanel() {
     setCreated(null)
     setLink(null)
     try {
-      const res = await provisionAccount({ orgId: orgId!, email, displayName: name, role: newRole, password, sendResetLink: sendReset })
+      const res = await provisionAccount({ orgId: orgId!, email, displayName: name, title: jobTitle, role: newRole, password, sendResetLink: sendReset })
       if (res.status === 'created') {
         setCreated({ email: email.trim().toLowerCase(), password })
         toast.success(`${name.trim()} can now sign in`)
@@ -66,6 +67,7 @@ function AddMemberPanel() {
         setLink(`${window.location.origin}/invite/?org=${encodeURIComponent(orgId!)}&invite=${res.inviteId}`)
       }
       setName('')
+      setJobTitle('')
       setEmail('')
       setPassword(tempPassword())
     } catch (err) {
@@ -90,6 +92,7 @@ function AddMemberPanel() {
         <div className="form-grid form-grid--2">
           <Field label="Full name">{(p) => <input {...p} className="input" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
           <Field label="Work email">{(p) => <input {...p} className="input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
+          <Field label="Job title" optional hint="e.g. Frontend engineer. They can change it in their profile.">{(p) => <input {...p} className="input" maxLength={80} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />}</Field>
           <Field label="Role">
             {(p) => (
               <select {...p} className="input" value={newRole} onChange={(e) => setNewRole(e.target.value as Role)}>
@@ -198,7 +201,7 @@ function MemberRow({ m }: { m: Membership }) {
           <Avatar name={m.displayName} uid={m.uid} src={m.photoURL} size={28} />
           <span>
             <span className="cell-primary">{m.displayName}{self ? ' (you)' : ''}</span>
-            <span className="cell-secondary">{m.title || m.email}</span>
+            <span className="cell-secondary">{m.title || 'No job title'}</span>
           </span>
         </span>
       </td>

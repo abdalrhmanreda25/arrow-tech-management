@@ -277,16 +277,16 @@ async function saveItemsInChunks(orgId: string, itemIds: string[], patch: ItemPa
   }
 }
 
-/** Deletes an item with its comments and links, recording sprint history and an audit entry. */
+/** Deletes an item with its comments, links and screenshots, recording sprint history and an audit entry. */
 export async function deleteItem(orgId: string, itemId: string, uid: string) {
-  const [comments, links] = await Promise.all([
-    getDocs(query(commentsCol(orgId, itemId), limit(450))),
+  const [comments, links, images] = await Promise.all([
+    getDocs(query(commentsCol(orgId, itemId), limit(400))),
     getDocs(query(linksCol(orgId, itemId), limit(40))),
+    getDocs(query(imagesCol(orgId, itemId), limit(20))),
   ])
   const cleanup = writeBatch(db())
-  comments.forEach((c) => cleanup.delete(c.ref))
-  links.forEach((l) => cleanup.delete(l.ref))
-  if (!comments.empty || !links.empty) await cleanup.commit()
+  for (const snap of [comments, links, images]) snap.forEach((d) => cleanup.delete(d.ref))
+  if (!comments.empty || !links.empty || !images.empty) await cleanup.commit()
 
   const ref = orgItem(orgId, 'items', itemId)
   await runTransaction(db(), async (tx) => {
@@ -345,3 +345,4 @@ export async function getSprintItems(orgId: string, sprintId: string) {
 
 export const commentsCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'comments')
 export const linksCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'links')
+export const imagesCol = (orgId: string, itemId: string) => collection(db(), 'orgs', orgId, 'items', itemId, 'images')

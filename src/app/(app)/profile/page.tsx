@@ -12,6 +12,7 @@ import { useToaster } from '@/components/providers/ToastProvider'
 import { updateMyProfile } from '@/lib/data/org'
 import { auth } from '@/lib/firebase'
 import { friendlyError } from '@/lib/errors'
+import { AVATAR, compressImage } from '@/lib/image'
 import { ROLE_LABELS } from '@domain/roles'
 
 function PasswordForm({ onChange }: { onChange: (current: string, next: string) => Promise<void> }) {
@@ -62,8 +63,9 @@ export default function ProfilePage() {
 
   const save = async (patch: { displayName: string; title?: string; photoURL?: string | null }) => {
     await updateMyProfile(user!.uid, memberships, patch)
+    // The photo lives in Firestore only; Auth keeps just the name.
     const current = auth().currentUser
-    if (current) await updateAuthProfile(current, { displayName: patch.displayName, ...(patch.photoURL !== undefined ? { photoURL: patch.photoURL } : {}) })
+    if (current) await updateAuthProfile(current, { displayName: patch.displayName })
     await refresh()
   }
 
@@ -81,6 +83,35 @@ export default function ProfilePage() {
     }
   }
 
+  const photo = me?.photoURL ?? null
+
+  const changePhoto = async (file: File | undefined) => {
+    if (!file) return
+    setPending(true)
+    setError(null)
+    try {
+      const { dataUrl } = await compressImage(file, AVATAR)
+      await save({ displayName: name.trim() || user!.displayName, title, photoURL: dataUrl })
+      toast.success('Photo updated')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const removePhoto = async () => {
+    setPending(true)
+    try {
+      await save({ displayName: name.trim() || user!.displayName, title, photoURL: null })
+      toast.success('Photo removed')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
     <>
       <PageHeader title="Profile" description="Your name and title are shown to teammates in every organization you belong to." />
@@ -89,10 +120,15 @@ export default function ProfilePage() {
           <form className="stack" onSubmit={submit}>
             {error ? <Alert type="error">{error}</Alert> : null}
             <div className="row">
-              <Avatar name={name || user?.displayName || ''} uid={user?.uid} src={user?.photoURL} size={56} />
+              <Avatar name={name || user?.displayName || ''} uid={user?.uid} src={photo} size={56} />
+              <label className="btn btn-secondary btn-sm">
+                {photo ? 'Change photo' : 'Add photo'}
+                <input type="file" accept="image/*" hidden disabled={pending} onChange={(e) => changePhoto(e.target.files?.[0])} />
+              </label>
+              {photo ? <button type="button" className="btn btn-ghost btn-sm" disabled={pending} onClick={removePhoto}>Remove</button> : null}
             </div>
             <Field label="Display name">{(p) => <input {...p} className="input" required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
-            <Field label="Title" optional hint="For example: Frontend engineer">{(p) => <input {...p} className="input" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}</Field>
+            <Field label="Job title" optional hint="Shown to teammates, e.g. Frontend engineer, Product designer">{(p) => <input {...p} className="input" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}</Field>
             <div><button className="btn btn-accent" disabled={pending || !name.trim()}>{pending ? 'Saving...' : 'Save'}</button></div>
           </form>
         </Panel>

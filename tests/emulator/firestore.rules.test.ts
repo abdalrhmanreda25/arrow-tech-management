@@ -215,6 +215,25 @@ describe('work items', () => {
     await assertFails(getDoc(doc(as(USERS.otherOwner), `orgs/${ORG_A}/items/i1/links/l1`)))
   })
 
+  it('stores screenshots inline only as bounded JPEG data URLs', async () => {
+    const jpeg = 'data:image/jpeg;base64,' + 'A'.repeat(1000)
+    const shot = (uid: string, dataUrl: string) => ({ name: 'screen.png', dataUrl, width: 800, height: 600, addedBy: uid, addedAt: serverTimestamp() })
+    await assertSucceeds(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/images/a`), shot(USERS.member, jpeg)))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/images/b`), shot(USERS.member, 'data:image/svg+xml;base64,PHN2Zz4=')))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/images/c`), shot(USERS.member, 'https://evil.test/x.jpg')))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/images/d`), shot(USERS.member, 'data:image/jpeg;base64,' + 'A'.repeat(700_001))))
+    await assertFails(setDoc(doc(as(USERS.viewer), `orgs/${ORG_A}/items/i1/images/e`), shot(USERS.viewer, jpeg)))
+    await assertFails(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/images/f`), shot(USERS.owner, jpeg)))
+  })
+
+  it('accepts small JPEG profile photos only', async () => {
+    const self = (photoURL: unknown) => updateDoc(doc(as(USERS.member), `orgs/${ORG_A}/members/${USERS.member}`), { displayName: 'M', photoURL })
+    await assertSucceeds(self('data:image/jpeg;base64,' + 'B'.repeat(500)))
+    await assertSucceeds(self(null))
+    await assertFails(self('https://tracker.test/pixel.gif'))
+    await assertFails(self('data:image/jpeg;base64,' + 'B'.repeat(140_001)))
+  })
+
   it('checks comment authorship', async () => {
     const c = { text: 'Looks good', authorName: 'M', createdAt: new Date() }
     await assertSucceeds(setDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1/comments/c1`), { ...c, authorId: USERS.member }))

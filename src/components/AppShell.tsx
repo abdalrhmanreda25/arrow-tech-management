@@ -133,7 +133,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useAuth()
-  const { role, can } = useOrg()
+  const { role, can, member } = useOrg()
   const [collapsed, setCollapsed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -229,7 +229,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         <div className="admin-sidebar-footer">
           <Link href="/profile/" className="admin-nav-item" aria-current={isActive('/profile/') ? 'page' : undefined} title={compact ? 'Profile' : undefined}>
-            <Avatar name={user?.displayName ?? ''} uid={user?.uid} src={user?.photoURL} size={20} />
+            <Avatar name={user?.displayName ?? ''} uid={user?.uid} src={member(user?.uid)?.photoURL} size={20} />
             <span className="admin-nav-text">
               {user?.displayName}
               {role ? <small className="role-chip">{ROLE_LABELS[role]}</small> : null}

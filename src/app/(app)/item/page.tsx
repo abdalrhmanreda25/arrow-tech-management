@@ -17,13 +17,14 @@ import { useToaster } from '@/components/providers/ToastProvider'
 import { useLiveDoc, useLiveQuery } from '@/lib/hooks'
 import { deleteItem, epicItemsQuery, epicsQuery, saveItem, type ItemPatch } from '@/lib/data/items'
 import { sprintsQuery } from '@/lib/data/sprints'
-import { addComment, addLink, commentsQuery, deleteComment, deleteLink, linksQuery } from '@/lib/data/activity'
+import { addComment, addImage, addLink, commentsQuery, deleteComment, deleteImage, deleteLink, imagesQuery, linksQuery } from '@/lib/data/activity'
+import { compressImage, MAX_IMAGES_PER_ITEM, SCREENSHOT } from '@/lib/image'
 import { orgItem } from '@/lib/data/refs'
 import { parseLabels } from '@/lib/board'
 import { ITEM_TYPES, PRIORITIES, STATUSES } from '@/lib/constants'
 import { ConflictError, friendlyError } from '@/lib/errors'
 import { formatDateTime, pts, relativeTime } from '@/lib/format'
-import type { ItemLink, Comment, Item, ItemStatus, ItemType, Priority, Sprint } from '@/lib/types'
+import type { ItemImage, ItemLink, Comment, Item, ItemStatus, ItemType, Priority, Sprint } from '@/lib/types'
 import '../../delivery-a.css'
 
 interface FormState {
@@ -210,6 +211,97 @@ function Links({ orgId, item, canWrite, canModerate }: { orgId: string; item: It
         </form>
       ) : null}
     </Panel>
+  )
+}
+
+function Screenshots({ orgId, item, canWrite, canModerate }: { orgId: string; item: Item; canWrite: boolean; canModerate: boolean }) {
+  const { user } = useAuth()
+  const { memberName } = useOrg()
+  const toast = useToaster()
+  const images = useLiveQuery<ItemImage>(() => imagesQuery(orgId, item.id, MAX_IMAGES_PER_ITEM), `img:${orgId}:${item.id}`)
+  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState<ItemImage | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const full = images.data.length >= MAX_IMAGES_PER_ITEM
+
+  const add = async (files: File[]) => {
+    if (!user || !files.length) return
+    const room = MAX_IMAGES_PER_ITEM - images.data.length
+    if (room <= 0) return toast.error(`An item keeps at most ${MAX_IMAGES_PER_ITEM} screenshots. Remove one first.`)
+    setBusy(true)
+    try {
+      for (const file of files.slice(0, room)) {
+        const img = await compressImage(file, SCREENSHOT)
+        await addImage(orgId, item.id, { name: file.name || 'Pasted screenshot', ...img }, user.uid)
+      }
+      toast.success(files.length > room ? `Added ${room}; the limit is ${MAX_IMAGES_PER_ITEM}` : 'Screenshot added')
+    } catch (err) {
+      toast.error(err)
+    } finally {
+      setBusy(false)
+      if (input.current) input.current.value = ''
+    }
+  }
+
+  // Paste a screenshot straight from the clipboard while the panel has focus.
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (!canWrite) return
+    const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+    if (files.length) {
+      e.preventDefault()
+      add(files)
+    }
+  }
+
+  return (
+    <div onPaste={onPaste}>
+      <Panel
+        title={`Screenshots${images.data.length ? ` (${images.data.length}/${MAX_IMAGES_PER_ITEM})` : ''}`}
+        actions={
+          canWrite ? (
+            <>
+              <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => add([...(e.target.files ?? [])])} />
+              <button type="button" className="btn btn-ghost btn-sm" disabled={busy || full} onClick={() => input.current?.click()}>
+                <Icon name="upload" /> {busy ? 'Adding...' : 'Add'}
+              </button>
+            </>
+          ) : null
+        }
+      >
+        {images.loading ? (
+          <Loading rows={1} />
+        ) : images.error ? (
+          <ErrorState error={images.error} />
+        ) : !images.data.length ? (
+          <p className="muted small">{canWrite ? 'No screenshots. Add images or paste one here (Ctrl/Cmd+V). They are compressed in your browser.' : 'No screenshots.'}</p>
+        ) : (
+          <ul className="shot-grid">
+            {images.data.map((img) => (
+              <li key={img.id}>
+                <button type="button" className="shot" onClick={() => setOpen(img)} aria-label={`Open ${img.name}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={img.dataUrl} alt={img.name} loading="lazy" />
+                </button>
+                <div className="row-between xsmall subtle">
+                  <span className="truncate" title={img.name}>{memberName(img.addedBy)}</span>
+                  {img.addedBy === user?.uid || canModerate ? (
+                    <button type="button" className="icon-btn icon-btn--sm icon-btn--plain" aria-label={`Delete ${img.name}`} onClick={() => deleteImage(orgId, item.id, img.id).catch(toast.error)}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Dialog open={Boolean(open)} onClose={() => setOpen(null)} title={open?.name ?? 'Screenshot'} size="lg">
+        {open ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={open.dataUrl} alt={open.name} style={{ width: '100%', height: 'auto', borderRadius: 8 }} />
+        ) : null}
+      </Dialog>
+    </div>
   )
 }
 
@@ -484,6 +576,7 @@ function ItemView({ id }: { id: string }) {
             ) : null}
             <p className="xsmall subtle" style={{ marginTop: 12 }}>Version {item.version}. Saves are rejected if someone else saved first.</p>
           </Panel>
+          {orgId ? <Screenshots orgId={orgId} item={item} canWrite={canWrite} canModerate={canModerate} /> : null}
           {orgId ? <Links orgId={orgId} item={item} canWrite={canWrite} canModerate={canModerate} /> : null}
         </aside>
       </div>
