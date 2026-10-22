@@ -55,7 +55,7 @@ export function friendlyError(err: unknown): string {
     case 'offline':
       return 'You appear to be offline. Changes will sync when the connection returns.'
     case 'index':
-      return 'This view needs a Firestore index that has not been deployed yet. Run: firebase deploy --only firestore:indexes'
+      return 'This view needs a Firestore index that is not deployed yet. Deploy firestore.indexes.json (firebase deploy --only firestore:indexes), or create it with the link below. Building takes a few minutes.'
     case 'not-found':
       return (err as Error).message || 'That item no longer exists.'
     default:
@@ -65,4 +65,10 @@ export function friendlyError(err: unknown): string {
   // Our own operations throw readable messages; Firestore internals do not.
   if (message && !/^\[?firebase|internal assertion/i.test(message)) return message.replace(/^Firebase: /, '')
   return 'Something went wrong. Try again.'
+}
+
+/** Firestore's missing-index errors carry a console link that creates the index in one click. */
+export function indexLink(err: unknown): string | null {
+  const m = String((err as Error)?.message ?? '').match(/https:\/\/console\.firebase\.google\.com\/[^\s)"']+/)
+  return m ? m[0] : null
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { errorKind, friendlyError } from '@/lib/errors'
+import { errorKind, friendlyError, indexLink } from '@/lib/errors'
 import { useOnline } from '@/lib/hooks'
 import Icon, { type IconName } from './Icon'
 
@@ -58,6 +58,11 @@ export function ErrorState({ error, onRetry, title }: { error: unknown; onRetry?
       </span>
       <strong>{heading}</strong>
       <p>{friendlyError(error)}</p>
+      {kind === 'index' && indexLink(error) ? (
+        <a className="btn btn-accent btn-sm" href={indexLink(error)!} target="_blank" rel="noopener noreferrer">
+          Create the index in Firebase Console
+        </a>
+      ) : null}
       {onRetry && kind !== 'permission' ? (
         <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry}>
           <Icon name="refresh" /> Try again
