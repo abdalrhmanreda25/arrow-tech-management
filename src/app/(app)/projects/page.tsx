@@ -36,13 +36,15 @@ function ProjectDialog({ open, onClose, project, teams }: { open: boolean; onClo
     status: project?.status ?? 'active',
     startDate: project?.startDate ?? '',
     targetDate: project?.targetDate ?? '',
-    memberIds: project?.memberIds ?? [],
+    directMemberIds: project?.directMemberIds ?? project?.memberIds ?? [],
   }))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof ProjectInput>(k: K, v: ProjectInput[K]) => setForm((f) => ({ ...f, [k]: v }))
-  const memberIds = form.memberIds ?? []
-  const toggle = (uid: string) => set('memberIds', memberIds.includes(uid) ? memberIds.filter((i) => i !== uid) : [...memberIds, uid])
+  const picked = form.directMemberIds ?? []
+  const viaTeam = teams.find((t) => t.id === form.teamId)?.memberIds ?? []
+  const assignedCount = assignable.filter((m) => picked.includes(m.uid) || viaTeam.includes(m.uid)).length
+  const toggle = (uid: string) => set('directMemberIds', picked.includes(uid) ? picked.filter((i) => i !== uid) : [...picked, uid])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -122,15 +124,21 @@ function ProjectDialog({ open, onClose, project, teams }: { open: boolean; onClo
           {(p) => <input {...p} className="input" type="date" min={form.startDate || undefined} value={form.targetDate ?? ''} onChange={(e) => set('targetDate', e.target.value)} />}
         </Field>
         <fieldset className="field--full">
-          <legend className="label">Assigned members ({memberIds.length})</legend>
-          <p className="xsmall subtle">Members and viewers only see projects they are assigned to. Managers and above see every project.</p>
+          <legend className="label">Assigned members ({assignedCount})</legend>
+          <p className="xsmall subtle">Members and viewers only see projects they are assigned to, directly or through the project team. Managers and above see every project.</p>
           {assignable.length ? (
             <div className="check-list">
               {assignable.map((m) => (
                 <label key={m.uid}>
-                  <input type="checkbox" className="checkbox" checked={memberIds.includes(m.uid)} onChange={() => toggle(m.uid)} />
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={picked.includes(m.uid) || viaTeam.includes(m.uid)}
+                    disabled={viaTeam.includes(m.uid)}
+                    onChange={() => toggle(m.uid)}
+                  />
                   <Avatar name={m.displayName} uid={m.uid} src={m.photoURL} size={20} /> {m.displayName}
-                  <span className="subtle xsmall">{m.title}</span>
+                  <span className="subtle xsmall">{viaTeam.includes(m.uid) ? 'Via team' : m.title}</span>
                 </label>
               ))}
             </div>
