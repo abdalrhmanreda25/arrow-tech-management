@@ -30,7 +30,7 @@ const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const time = (c: Ceremony) => c.scheduledAt.toDate().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
 export default function CalendarPage() {
-  const { orgId, project } = useOrg()
+  const { orgId, project, projects } = useOrg()
   const [month, setMonth] = useState(() => todayKey().slice(0, 7) + '-01')
   const [scope, setScope] = useState<'project' | 'all'>('project')
   const [openDay, setOpenDay] = useState<string | null>(null)
@@ -54,12 +54,14 @@ export default function CalendarPage() {
   const byDay = useMemo(() => {
     const map = new Map<string, CalEvent[]>()
     const push = (day: string, e: CalEvent) => map.set(day, [...(map.get(day) ?? []), e])
+    // Members only see projects they are assigned to, so "All projects" means those.
+    const visible = new Set(projects.map((p) => p.id))
     for (const s of sprints.data) {
       push(s.startDate, { id: `${s.id}-s`, kind: 'sprint', label: `${s.name} starts`, href: `/sprint/?id=${s.id}` })
       push(s.endDate, { id: `${s.id}-e`, kind: 'sprint', label: `${s.name} ends`, href: `/sprint/?id=${s.id}` })
     }
     for (const c of ceremonies.data) {
-      if (projectId && c.projectId !== projectId) continue
+      if (projectId ? c.projectId !== projectId : !visible.has(c.projectId)) continue
       push(todayKey(c.scheduledAt.toDate()), {
         id: c.id,
         kind: 'ceremony',
@@ -69,11 +71,11 @@ export default function CalendarPage() {
       })
     }
     for (const i of items.data) {
-      if (!i.dueDate) continue
+      if (!i.dueDate || !visible.has(i.projectId)) continue
       push(i.dueDate, { id: i.id, kind: i.status === 'done' ? 'done' : 'item', label: `${i.key} ${i.title}`, href: `/item/?id=${i.id}`, detail: i.status === 'done' ? 'Done' : 'Due' })
     }
     return map
-  }, [sprints.data, ceremonies.data, items.data, projectId])
+  }, [sprints.data, ceremonies.data, items.data, projectId, projects])
 
   const loading = items.loading || ceremonies.loading || (Boolean(project) && sprints.loading)
   const error = items.error || ceremonies.error || sprints.error

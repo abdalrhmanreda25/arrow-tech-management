@@ -66,7 +66,15 @@ export async function updateMyProfile(uid: string, memberships: Membership[], pa
 
 /* --------------------------------------------------------------- projects */
 
-export const projectsQuery = (orgId: string) => query(orgCol(orgId, 'projects'), orderBy('name'), limit(200))
+/**
+ * Projects the user may see: all of them for managers and above, otherwise
+ * only those listing `assignedTo` in memberIds (firestore.rules allows no more).
+ * The assigned query is unordered to avoid a composite index; sort by name client-side.
+ */
+export const projectsQuery = (orgId: string, assignedTo: string | null = null) =>
+  assignedTo
+    ? query(orgCol(orgId, 'projects'), where('memberIds', 'array-contains', assignedTo), limit(200))
+    : query(orgCol(orgId, 'projects'), orderBy('name'), limit(200))
 
 export interface ProjectInput {
   name: string
@@ -78,6 +86,7 @@ export interface ProjectInput {
   startDate?: string | null
   targetDate?: string | null
   color?: string
+  memberIds?: string[]
 }
 
 export const normaliseKey = (key: string) => key.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10)
@@ -102,6 +111,7 @@ export async function createProject(orgId: string, input: ProjectInput, uid: str
     activeSprintId: null,
     board: { swimlanes: 'none', wipLimits: {} },
     color: input.color ?? '#f4520b',
+    memberIds: input.memberIds ?? [],
     createdAt: serverTimestamp(),
     createdBy: uid,
     updatedAt: serverTimestamp(),

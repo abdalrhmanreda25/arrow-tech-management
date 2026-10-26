@@ -50,6 +50,8 @@ export interface Project extends WithId {
   activeSprintId: string | null
   board?: BoardSettings
   color?: string
+  /** Members and viewers see only projects that list them here; managers see all. */
+  memberIds?: string[]
   createdAt?: Timestamp
 }
 
@@ -71,6 +73,8 @@ export interface Item extends WithId {
   status: ItemStatus
   priority: Priority
   storyPoints: number | null
+  /** Estimated hours of work, null when not estimated. */
+  hours?: number | null
   assigneeId: string | null
   reporterId?: string | null
   epicId: string | null

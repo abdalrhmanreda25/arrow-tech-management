@@ -33,6 +33,7 @@ export default function ItemDialog({ open, onClose, defaults, onCreated }: Props
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<Priority>(defaults?.priority ?? 'medium')
   const [points, setPoints] = useState<string>('')
+  const [hours, setHours] = useState<string>('')
   const [assigneeId, setAssigneeId] = useState<string | null>(defaults?.assigneeId ?? null)
   const [epicId, setEpicId] = useState<string | null>(defaults?.epicId ?? null)
   const [dueDate, setDueDate] = useState('')
@@ -45,6 +46,7 @@ export default function ItemDialog({ open, onClose, defaults, onCreated }: Props
     setTitle('')
     setDescription('')
     setPoints('')
+    setHours('')
     setDueDate('')
     setStartDate('')
     setTargetDate('')
@@ -56,6 +58,8 @@ export default function ItemDialog({ open, onClose, defaults, onCreated }: Props
     if (!orgId || !project || !user) return
     const sp = points === '' ? null : Number(points)
     if (sp !== null && (!Number.isFinite(sp) || sp < 0 || sp > 100)) return setError('Story points must be between 0 and 100.')
+    const hrs = hours === '' ? null : Number(hours)
+    if (hrs !== null && (!Number.isFinite(hrs) || hrs < 0 || hrs > 1000)) return setError('Hours must be between 0 and 1000.')
     setPending(true)
     setError(null)
     try {
@@ -69,6 +73,7 @@ export default function ItemDialog({ open, onClose, defaults, onCreated }: Props
           description,
           priority,
           storyPoints: sp,
+          hours: type === 'epic' ? null : hrs,
           assigneeId,
           epicId: type === 'epic' ? null : epicId,
           dueDate: dueDate || null,
@@ -133,6 +138,9 @@ export default function ItemDialog({ open, onClose, defaults, onCreated }: Props
             <>
               <Field label="Story points" optional hint={`Common: ${POINT_SCALE.join(', ')}`}>
                 {(p) => <input {...p} className="input" type="number" min={0} max={100} step={0.5} value={points} onChange={(e) => setPoints(e.target.value)} />}
+              </Field>
+              <Field label="Hours" optional hint="How long the work should take">
+                {(p) => <input {...p} className="input" type="number" min={0} max={1000} step={0.5} value={hours} onChange={(e) => setHours(e.target.value)} />}
               </Field>
               <Field label="Epic" optional>
                 {(p) => (

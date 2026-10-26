@@ -63,7 +63,7 @@ export async function seed(env: RulesTestEnvironment) {
       [`orgs/${ORG_A}/members/${USERS.member}`, member(USERS.member, 'member', ORG_A)],
       [`orgs/${ORG_A}/members/${USERS.viewer}`, member(USERS.viewer, 'viewer', ORG_A)],
       [`orgs/${ORG_B}/members/${USERS.otherOwner}`, member(USERS.otherOwner, 'owner', ORG_B)],
-      [`orgs/${ORG_A}/projects/ARW`, { name: 'Website', key: 'ARW', status: 'active', itemSeq: 1, activeSprintId: 'sActive', createdBy: USERS.manager }],
+      [`orgs/${ORG_A}/projects/ARW`, { name: 'Website', key: 'ARW', status: 'active', itemSeq: 1, activeSprintId: 'sActive', memberIds: [USERS.member, USERS.viewer], createdBy: USERS.manager }],
       [`orgs/${ORG_A}/projects/MOB`, { name: 'Mobile', key: 'MOB', status: 'active', itemSeq: 0, activeSprintId: null, createdBy: USERS.manager }],
       [`orgs/${ORG_B}/projects/SEC`, { name: 'Secret', key: 'SEC', status: 'active', itemSeq: 1, activeSprintId: null, createdBy: USERS.otherOwner }],
       [`orgs/${ORG_A}/items/i1`, baseItem()],
