@@ -8,11 +8,12 @@ import {
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
   where,
   writeBatch,
+  type WriteBatch,
 } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
+import { projectMemberIds } from '@domain/access'
 import { db } from '../firebase'
 import { stageAudit } from '../audit'
 import type { BoardSettings, Membership, Project, Team } from '../types'
@@ -86,7 +87,23 @@ export interface ProjectInput {
   startDate?: string | null
   targetDate?: string | null
   color?: string
-  memberIds?: string[]
+  /** People picked on the project itself; its team's members are added on save. */
+  directMemberIds?: string[]
+}
+
+const teamMembers = async (orgId: string, teamId: string | null | undefined): Promise<string[]> =>
+  teamId ? ((await getDoc(orgItem(orgId, 'teams', teamId))).get('memberIds') ?? []) : []
+
+/** Hand-picked members; projects saved before directMemberIds existed kept them in memberIds. */
+const directOf = (p: Partial<Project>) => p.directMemberIds ?? p.memberIds ?? []
+
+/** Gives every project on `teamId` the access list for the team's new member list. */
+async function stageTeamAccess(batch: WriteBatch, orgId: string, teamId: string, team: string[], uid: string) {
+  const projects = await getDocs(query(orgCol(orgId, 'projects'), where('teamId', '==', teamId)))
+  for (const p of projects.docs) {
+    const direct = directOf(p.data() as Project)
+    batch.update(p.ref, { directMemberIds: direct, memberIds: projectMemberIds(direct, team), updatedAt: serverTimestamp(), updatedBy: uid })
+  }
 }
 
 export const normaliseKey = (key: string) => key.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10)
@@ -96,6 +113,8 @@ export async function createProject(orgId: string, input: ProjectInput, uid: str
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(key)) throw new Error('Keys are 2-10 letters or digits and start with a letter.')
   const ref = orgItem(orgId, 'projects', key)
   if ((await getDoc(ref)).exists()) throw new Error(`The key ${key} is already used by another project.`)
+  const direct = input.directMemberIds ?? []
+  const team = await teamMembers(orgId, input.teamId)
   const batch = writeBatch(db())
   batch.set(ref, {
     name: input.name.trim(),
@@ -111,7 +130,8 @@ export async function createProject(orgId: string, input: ProjectInput, uid: str
     activeSprintId: null,
     board: { swimlanes: 'none', wipLimits: {} },
     color: input.color ?? '#f4520b',
-    memberIds: input.memberIds ?? [],
+    directMemberIds: direct,
+    memberIds: projectMemberIds(direct, team),
     createdAt: serverTimestamp(),
     createdBy: uid,
     updatedAt: serverTimestamp(),
@@ -123,8 +143,17 @@ export async function createProject(orgId: string, input: ProjectInput, uid: str
 }
 
 export async function updateProject(orgId: string, projectId: string, patch: Partial<Omit<ProjectInput, 'key'>> & { archived?: boolean; board?: BoardSettings }, uid: string) {
+  const ref = orgItem(orgId, 'projects', projectId)
+  const access: Partial<Project> = {}
+  if (patch.teamId !== undefined || patch.directMemberIds !== undefined) {
+    const current = (await getDoc(ref)).data() as Project
+    const direct = patch.directMemberIds ?? directOf(current)
+    const teamId = patch.teamId !== undefined ? patch.teamId : current.teamId
+    access.directMemberIds = direct
+    access.memberIds = projectMemberIds(direct, await teamMembers(orgId, teamId))
+  }
   const batch = writeBatch(db())
-  batch.update(orgItem(orgId, 'projects', projectId), { ...patch, updatedAt: serverTimestamp(), updatedBy: uid })
+  batch.update(ref, { ...patch, ...access, updatedAt: serverTimestamp(), updatedBy: uid })
   if (patch.archived !== undefined) stageAudit(batch, orgId, uid, patch.archived ? 'project.archived' : 'project.restored', 'project', projectId)
   await batch.commit()
 }
@@ -144,7 +173,10 @@ export async function saveTeam(orgId: string, team: Partial<Team> & { name: stri
     updatedBy: uid,
   }
   if (team.id) {
-    await updateDoc(orgItem(orgId, 'teams', team.id), data)
+    const batch = writeBatch(db())
+    batch.update(orgItem(orgId, 'teams', team.id), data)
+    await stageTeamAccess(batch, orgId, team.id, team.memberIds, uid)
+    await batch.commit()
     return team.id
   }
   const ref = doc(orgCol(orgId, 'teams'))
@@ -158,6 +190,7 @@ export async function saveTeam(orgId: string, team: Partial<Team> & { name: stri
 export async function deleteTeam(orgId: string, teamId: string, uid: string) {
   const batch = writeBatch(db())
   batch.delete(orgItem(orgId, 'teams', teamId))
+  await stageTeamAccess(batch, orgId, teamId, [], uid)
   stageAudit(batch, orgId, uid, 'team.deleted', 'team', teamId)
   await batch.commit()
 }

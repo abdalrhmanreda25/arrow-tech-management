@@ -169,6 +169,32 @@ describe('end to end on the client SDK', () => {
     ids.newbie = newbieUid
   })
 
+  it('shows members the projects of their teams', async () => {
+    await as(OWNER)
+    const teamId = await m.org.saveTeam(orgId, { name: 'Mobile squad', memberIds: [] }, ownerUid)
+    await m.org.createProject(orgId, { name: 'App', key: 'app', teamId }, ownerUid)
+    await m.org.createProject(orgId, { name: 'Ops', key: 'ops', directMemberIds: [ids.newbie] }, ownerUid)
+    const visible = async () => {
+      await as(NEWBIE)
+      const snap = await getDocs(m.org.projectsQuery(orgId, ids.newbie))
+      await as(OWNER)
+      return snap.docs.map((d) => d.id).sort()
+    }
+    // Picked by hand on OPS only; joining the team adds APP.
+    expect(await visible()).toEqual(['OPS'])
+    await m.org.saveTeam(orgId, { id: teamId, name: 'Mobile squad', memberIds: [ids.newbie] }, ownerUid)
+    expect(await visible()).toEqual(['APP', 'OPS'])
+    // Leaving the team removes APP; the hand-picked OPS stays.
+    await m.org.saveTeam(orgId, { id: teamId, name: 'Mobile squad', memberIds: [] }, ownerUid)
+    expect(await visible()).toEqual(['OPS'])
+    // Moving a project onto a team grants its members access.
+    await m.org.saveTeam(orgId, { id: teamId, name: 'Mobile squad', memberIds: [ids.newbie] }, ownerUid)
+    await m.org.updateProject(orgId, 'APP', { teamId: null }, ownerUid)
+    expect(await visible()).toEqual(['OPS'])
+    await m.org.updateProject(orgId, 'APP', { teamId }, ownerUid)
+    expect(await visible()).toEqual(['APP', 'OPS'])
+  })
+
   it('protects the last owner and lets owners hand over', async () => {
     await as(OWNER)
     await expect(m.api.removeMember({ orgId, uid: ownerUid })).rejects.toThrow(/last owner/)

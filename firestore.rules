@@ -319,9 +319,10 @@ service cloud.firestore {
       match /projects/{projectId} {
         function validProject(d) {
           return d.keys().hasOnly(['name', 'key', 'description', 'teamId', 'status', 'archived', 'startDate', 'targetDate',
-                                   'itemSeq', 'activeSprintId', 'board', 'leadId', 'color', 'memberIds', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+                                   'itemSeq', 'activeSprintId', 'board', 'leadId', 'color', 'memberIds', 'directMemberIds', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
             && isStr(d.name, 1, 80)
             && (!('memberIds' in d) || (d.memberIds is list && d.memberIds.size() <= 200))
+            && (!('directMemberIds' in d) || (d.directMemberIds is list && d.directMemberIds.size() <= 200))
             && d.key is string && d.key.matches('^[A-Z][A-Z0-9]{1,9}$')
             && d.status in ['planned', 'active', 'on_hold', 'completed']
             && optStr(d, 'description', 4000)
@@ -347,7 +348,8 @@ service cloud.firestore {
         }
 
         // Managers and above see every project; members and viewers only the
-        // ones listing them in memberIds.
+        // ones listing them in memberIds (picked people plus the team's members,
+        // kept in step by the client when a project or team is saved).
         allow read: if hasRole(orgId, 'manager')
           || (isMember(orgId) && me() in resource.data.get('memberIds', []));
         // The document id is the project key, so keys are unique per org.

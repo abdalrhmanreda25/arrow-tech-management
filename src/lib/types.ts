@@ -52,6 +52,8 @@ export interface Project extends WithId {
   color?: string
   /** Members and viewers see only projects that list them here; managers see all. */
   memberIds?: string[]
+  /** People picked on the project; memberIds adds the team's members to these. */
+  directMemberIds?: string[]
   createdAt?: Timestamp
 }
 
