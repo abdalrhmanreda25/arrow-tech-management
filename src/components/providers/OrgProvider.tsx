@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { can as canDo, type Permission } from '@domain/roles'
+import { atLeast, can as canDo, type Permission } from '@domain/roles'
 import { useLiveDoc, useLiveQuery } from '@/lib/hooks'
 import { membersQuery, myMembershipsQuery, projectsQuery } from '@/lib/data/org'
 import { orgDoc } from '@/lib/data/refs'
@@ -79,7 +79,14 @@ export default function OrgProvider({ children }: { children: ReactNode }) {
 
   const orgState = useLiveDoc<Org>(() => (orgId ? orgDoc(orgId) : null), `o:${orgId}`)
   const membersState = useLiveQuery<Membership>(() => (orgId ? membersQuery(orgId) : null), `ms:${orgId}`)
-  const projectsState = useLiveQuery<Project>(() => (orgId ? projectsQuery(orgId) : null), `p:${orgId}`)
+  // The live member doc is authoritative; the membership list can lag a role change.
+  const role = (uid && (membersState.data.find((m) => m.uid === uid)?.role ?? mships.data.find((m) => m.orgId === orgId)?.role)) || null
+  // Members and viewers only load the projects they are assigned to.
+  const assignedTo = atLeast(role, 'manager') ? null : uid
+  const projectsState = useLiveQuery<Project>(
+    () => (orgId && role ? projectsQuery(orgId, assignedTo) : null),
+    `p:${orgId}:${role ? assignedTo ?? 'all' : 'none'}`,
+  )
 
   useEffect(() => {
     if (!orgId || projectsState.loading) return
@@ -106,9 +113,8 @@ export default function OrgProvider({ children }: { children: ReactNode }) {
   const value = useMemo<OrgValue>(() => {
     const members = [...membersState.data].sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''))
     const byUid = new Map(members.map((m) => [m.uid, m]))
-    // The live member doc is authoritative; the membership list can lag a role change.
-    const role = (uid && (byUid.get(uid)?.role ?? mships.data.find((m) => m.orgId === orgId)?.role)) || null
-    const project = projectsState.data.find((p) => p.id === projectId) ?? null
+    const projects = [...projectsState.data].sort((a, b) => a.name.localeCompare(b.name))
+    const project = projects.find((p) => p.id === projectId) ?? null
     return {
       memberships: mships.data,
       membershipsLoading: mships.loading,
@@ -121,7 +127,7 @@ export default function OrgProvider({ children }: { children: ReactNode }) {
       can: (permission) => canDo(role, permission),
       member: (id) => (id ? byUid.get(id) : undefined),
       memberName: (id) => (id ? byUid.get(id)?.displayName || 'Former member' : 'Unassigned'),
-      projects: projectsState.data,
+      projects,
       projectsLoading: projectsState.loading,
       project,
       projectId: project?.id ?? null,
@@ -129,7 +135,7 @@ export default function OrgProvider({ children }: { children: ReactNode }) {
       loading: mships.loading || (Boolean(orgId) && (orgState.loading || membersState.loading || projectsState.loading)),
       error: mships.error || orgState.error || membersState.error || projectsState.error,
     }
-  }, [mships, orgId, orgState, membersState, projectsState, projectId, uid, setOrgId, setProjectId])
+  }, [mships, orgId, orgState, membersState, projectsState, projectId, role, setOrgId, setProjectId])
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>
 }

@@ -319,8 +319,9 @@ service cloud.firestore {
       match /projects/{projectId} {
         function validProject(d) {
           return d.keys().hasOnly(['name', 'key', 'description', 'teamId', 'status', 'archived', 'startDate', 'targetDate',
-                                   'itemSeq', 'activeSprintId', 'board', 'leadId', 'color', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+                                   'itemSeq', 'activeSprintId', 'board', 'leadId', 'color', 'memberIds', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
             && isStr(d.name, 1, 80)
+            && (!('memberIds' in d) || (d.memberIds is list && d.memberIds.size() <= 200))
             && d.key is string && d.key.matches('^[A-Z][A-Z0-9]{1,9}$')
             && d.status in ['planned', 'active', 'on_hold', 'completed']
             && optStr(d, 'description', 4000)
@@ -345,7 +346,10 @@ service cloud.firestore {
                   && getAfter(sprintPath(orgId, prev)).data.status == 'completed'));
         }
 
-        allow read: if isMember(orgId);
+        // Managers and above see every project; members and viewers only the
+        // ones listing them in memberIds.
+        allow read: if hasRole(orgId, 'manager')
+          || (isMember(orgId) && me() in resource.data.get('memberIds', []));
         // The document id is the project key, so keys are unique per org.
         allow create: if hasRole(orgId, 'manager')
           && validProject(request.resource.data)
@@ -353,13 +357,14 @@ service cloud.firestore {
           && request.resource.data.itemSeq == 0
           && request.resource.data.activeSprintId == null
           && request.resource.data.createdBy == me();
-        // Managers edit settings; any member may bump the item counter by exactly
-        // one, which is how new items get their key (see items).
+        // Managers edit settings; a member assigned to the project may bump the
+        // item counter by exactly one, which is how new items get their key (see items).
         allow update: if (hasRole(orgId, 'manager')
             && validProject(request.resource.data)
             && unchanged(['key', 'itemSeq', 'activeSprintId', 'createdAt', 'createdBy'])
             && request.resource.data.updatedBy == me())
           || (hasRole(orgId, 'member')
+            && (hasRole(orgId, 'manager') || me() in resource.data.get('memberIds', []))
             && changed().hasOnly(['itemSeq'])
             && request.resource.data.itemSeq == resource.data.itemSeq + 1)
           || activeSprintChange();
@@ -429,19 +434,25 @@ service cloud.firestore {
           return d.keys().hasOnly(['projectId', 'key', 'seq', 'type', 'title', 'description', 'status', 'priority',
                                    'storyPoints', 'assigneeId', 'reporterId', 'epicId', 'parentId', 'sprintId', 'teamId',
                                    'labels', 'rank', 'boardRank', 'dueDate', 'startDate', 'targetDate', 'color',
-                                   'carryoverCount', 'lastCarriedOverFrom', 'version', 'completedAt',
+                                   'carryoverCount', 'lastCarriedOverFrom', 'version', 'completedAt', 'hours',
                                    'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
             && d.type in ['epic', 'story', 'task', 'bug']
             && isStr(d.title, 1, 200)
             && d.status in ['todo', 'in_progress', 'in_review', 'done']
             && d.priority in ['low', 'medium', 'high', 'urgent']
             && (d.get('storyPoints', null) == null || (d.storyPoints is number && d.storyPoints >= 0 && d.storyPoints <= 100))
+            && (d.get('hours', null) == null || (d.hours is number && d.hours >= 0 && d.hours <= 1000))
             && optStr(d, 'description', 20000)
             && (!('labels' in d) || (d.labels is list && d.labels.size() <= 20))
             && optDay(d, 'dueDate') && optDay(d, 'startDate') && optDay(d, 'targetDate')
             && d.version is int
             // Epics are containers and never sit in a sprint.
             && (d.type != 'epic' || d.get('sprintId', null) == null);
+        }
+
+        // Members work only in projects they are assigned to; managers anywhere.
+        function onProject(d) {
+          return hasRole(orgId, 'manager') || me() in get(projectPath(d)).data.get('memberIds', []);
         }
 
         // Items join planned or active sprints of their own project only.
@@ -494,6 +505,7 @@ service cloud.firestore {
         // client writing from a stale copy is rejected. updatedAt is the commit
         // time, which orders sprint history.
         allow update: if (hasRole(orgId, 'member')
+            && onProject(resource.data)
             && validItem(request.resource.data)
             && request.resource.data.version == resource.data.version + 1
             && request.resource.data.updatedAt == request.time

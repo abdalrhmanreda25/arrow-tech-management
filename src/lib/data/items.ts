@@ -27,6 +27,7 @@ export interface ItemInput {
   status?: ItemStatus
   priority?: Priority
   storyPoints?: number | null
+  hours?: number | null
   assigneeId?: string | null
   epicId?: string | null
   sprintId?: string | null
@@ -155,6 +156,7 @@ async function createItemOnce(orgId: string, input: ItemInput, uid: string) {
       status: input.status ?? 'todo',
       priority: input.priority ?? 'medium',
       storyPoints: input.type === 'epic' ? null : input.storyPoints ?? null,
+      hours: input.type === 'epic' ? null : input.hours ?? null,
       assigneeId: input.assigneeId ?? null,
       reporterId: uid,
       epicId: input.type === 'epic' ? null : input.epicId ?? null,
@@ -192,6 +194,7 @@ export type ItemPatch = Partial<
     | 'status'
     | 'priority'
     | 'storyPoints'
+    | 'hours'
     | 'assigneeId'
     | 'epicId'
     | 'sprintId'

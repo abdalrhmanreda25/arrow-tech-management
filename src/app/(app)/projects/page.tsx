@@ -7,10 +7,12 @@ import Field from '@/components/ui/Field'
 import Alert from '@/components/ui/Alert'
 import Icon from '@/components/ui/Icon'
 import MemberSelect from '@/components/MemberSelect'
+import { Avatar } from '@/components/ui/Bits'
 import { Empty, ErrorState, Loading, PermissionNotice } from '@/components/ui/States'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { useOrg } from '@/components/providers/OrgProvider'
 import { useToaster } from '@/components/providers/ToastProvider'
+import { atLeast } from '@domain/roles'
 import { useLiveQuery } from '@/lib/hooks'
 import { createProject, normaliseKey, teamsQuery, updateProject, type ProjectInput } from '@/lib/data/org'
 import { friendlyError } from '@/lib/errors'
@@ -21,8 +23,10 @@ const STATUS_LABELS: Record<Project['status'], string> = { planned: 'Planned', a
 
 function ProjectDialog({ open, onClose, project, teams }: { open: boolean; onClose: () => void; project: Project | null; teams: Team[] }) {
   const { user } = useAuth()
-  const { orgId, setProjectId } = useOrg()
+  const { orgId, setProjectId, members } = useOrg()
   const toast = useToaster()
+  // Managers and above already see every project, so only lower roles are assigned.
+  const assignable = members.filter((m) => !atLeast(m.role, 'manager'))
   const [form, setForm] = useState<ProjectInput>(() => ({
     name: project?.name ?? '',
     key: project?.key ?? '',
@@ -32,10 +36,13 @@ function ProjectDialog({ open, onClose, project, teams }: { open: boolean; onClo
     status: project?.status ?? 'active',
     startDate: project?.startDate ?? '',
     targetDate: project?.targetDate ?? '',
+    memberIds: project?.memberIds ?? [],
   }))
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof ProjectInput>(k: K, v: ProjectInput[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const memberIds = form.memberIds ?? []
+  const toggle = (uid: string) => set('memberIds', memberIds.includes(uid) ? memberIds.filter((i) => i !== uid) : [...memberIds, uid])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -114,6 +121,23 @@ function ProjectDialog({ open, onClose, project, teams }: { open: boolean; onClo
         <Field label="Target date" optional>
           {(p) => <input {...p} className="input" type="date" min={form.startDate || undefined} value={form.targetDate ?? ''} onChange={(e) => set('targetDate', e.target.value)} />}
         </Field>
+        <fieldset className="field--full">
+          <legend className="label">Assigned members ({memberIds.length})</legend>
+          <p className="xsmall subtle">Members and viewers only see projects they are assigned to. Managers and above see every project.</p>
+          {assignable.length ? (
+            <div className="check-list">
+              {assignable.map((m) => (
+                <label key={m.uid}>
+                  <input type="checkbox" className="checkbox" checked={memberIds.includes(m.uid)} onChange={() => toggle(m.uid)} />
+                  <Avatar name={m.displayName} uid={m.uid} src={m.photoURL} size={20} /> {m.displayName}
+                  <span className="subtle xsmall">{m.title}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="small muted">No members or viewers in this organization yet.</p>
+          )}
+        </fieldset>
       </form>
     </Dialog>
   )
@@ -169,6 +193,7 @@ export default function ProjectsPage() {
                 <th>Status</th>
                 <th>Team</th>
                 <th>Lead</th>
+                <th>Members</th>
                 <th>Items</th>
                 <th>Target</th>
                 <th className="col-actions"><span className="sr-only">Actions</span></th>
@@ -185,6 +210,7 @@ export default function ProjectsPage() {
                   <td data-label="Status"><span className="badge">{STATUS_LABELS[p.status]}</span></td>
                   <td data-label="Team" className="cell-muted">{teams.data.find((t) => t.id === p.teamId)?.name ?? '-'}</td>
                   <td data-label="Lead" className="cell-muted">{p.leadId ? memberName(p.leadId) : '-'}</td>
+                  <td data-label="Members">{p.memberIds?.length ?? 0}</td>
                   <td data-label="Items">{p.itemSeq}</td>
                   <td data-label="Target" className="cell-muted">{p.targetDate ? formatDate(p.targetDate) : '-'}</td>
                   <td className="col-actions">

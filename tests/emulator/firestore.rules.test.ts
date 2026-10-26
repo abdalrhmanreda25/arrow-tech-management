@@ -261,6 +261,64 @@ describe('projects', () => {
   })
 })
 
+describe('project assignment', () => {
+  const assigned = (db: Firestore) => getDocs(query(collection(db, `orgs/${ORG_A}/projects`), where('memberIds', 'array-contains', USERS.member)))
+
+  it('shows members and viewers only the projects they are assigned to', async () => {
+    await assertSucceeds(getDoc(doc(as(USERS.member), `orgs/${ORG_A}/projects/ARW`)))
+    await assertFails(getDoc(doc(as(USERS.member), `orgs/${ORG_A}/projects/MOB`)))
+    await assertFails(getDocs(collection(as(USERS.member), `orgs/${ORG_A}/projects`)))
+    await assertSucceeds(assigned(as(USERS.member)))
+    await assertSucceeds(getDoc(doc(as(USERS.viewer), `orgs/${ORG_A}/projects/ARW`)))
+    await assertFails(getDoc(doc(as(USERS.viewer), `orgs/${ORG_A}/projects/MOB`)))
+  })
+
+  it('shows managers and above every project', async () => {
+    await assertSucceeds(getDocs(collection(as(USERS.manager), `orgs/${ORG_A}/projects`)))
+    await assertSucceeds(getDoc(doc(as(USERS.admin), `orgs/${ORG_A}/projects/MOB`)))
+  })
+
+  it('lets managers assign members, and only to a list of uids', async () => {
+    const save = (memberIds: unknown) => updateDoc(doc(as(USERS.manager), `orgs/${ORG_A}/projects/MOB`), { memberIds, updatedBy: USERS.manager, updatedAt: serverTimestamp() })
+    await assertSucceeds(save([USERS.member]))
+    await assertFails(save('everyone'))
+    await assertFails(updateDoc(doc(as(USERS.member), `orgs/${ORG_A}/projects/ARW`), { memberIds: [USERS.member, USERS.admin] }))
+    await assertSucceeds(getDoc(doc(as(USERS.member), `orgs/${ORG_A}/projects/MOB`)))
+  })
+
+  it('keeps members from adding or editing work in projects they are not on', async () => {
+    const db = as(USERS.member)
+    await assertFails(
+      runTransaction(db, async (tx) => {
+        tx.update(doc(db, `orgs/${ORG_A}/projects/MOB`), { itemSeq: increment(1) })
+        tx.set(doc(db, `orgs/${ORG_A}/items/mob-1`), baseItem({ projectId: 'MOB', key: 'MOB-1', seq: 1, updatedAt: serverTimestamp() }))
+      }),
+    )
+    await assertSucceeds(createItem(db, USERS.member, 2))
+    await env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore() as unknown as Firestore, `orgs/${ORG_A}/items/mob-0`), baseItem({ projectId: 'MOB', key: 'MOB-0', seq: 0 })))
+    await assertFails(updateDoc(doc(db, `orgs/${ORG_A}/items/mob-0`), { title: 'x', version: 2, updatedBy: USERS.member, updatedAt: serverTimestamp() }))
+    await assertSucceeds(updateDoc(doc(as(USERS.manager), `orgs/${ORG_A}/items/mob-0`), { title: 'x', version: 2, updatedBy: USERS.manager, updatedAt: serverTimestamp() }))
+  })
+})
+
+describe('task hours', () => {
+  const edit = (o: Record<string, unknown>) => updateDoc(doc(as(USERS.member), `orgs/${ORG_A}/items/i1`), { ...o, version: 2, updatedBy: USERS.member, updatedAt: serverTimestamp() })
+
+  it('accepts hours between 0 and 1000, or none', async () => {
+    await assertSucceeds(edit({ hours: 6.5 }))
+    await env.clearFirestore()
+    await seed(env)
+    await assertSucceeds(edit({ hours: null }))
+    await assertFails(edit({ hours: -1 }))
+    await assertFails(edit({ hours: 1001 }))
+    await assertFails(edit({ hours: '4' }))
+  })
+
+  it('records hours on new items', async () => {
+    await assertSucceeds(createItem(as(USERS.member), USERS.member, 2, { hours: 3 }))
+  })
+})
+
 describe('sprints', () => {
   const sprint = (o: Record<string, unknown> = {}) => ({
     projectId: 'ARW',

@@ -34,6 +34,7 @@ interface FormState {
   status: ItemStatus
   priority: Priority
   storyPoints: string
+  hours: string
   assigneeId: string | null
   epicId: string | null
   sprintId: string | null
@@ -50,6 +51,7 @@ const toForm = (i: Item): FormState => ({
   status: i.status,
   priority: i.priority,
   storyPoints: i.storyPoints === null || i.storyPoints === undefined ? '' : String(i.storyPoints),
+  hours: i.hours === null || i.hours === undefined ? '' : String(i.hours),
   assigneeId: i.assigneeId ?? null,
   epicId: i.epicId ?? null,
   sprintId: i.sprintId ?? null,
@@ -64,6 +66,8 @@ const same = (a: FormState, b: FormState) => (Object.keys(a) as (keyof FormState
 function toPatch(f: FormState): ItemPatch | string {
   const sp = f.storyPoints === '' ? null : Number(f.storyPoints)
   if (sp !== null && (!Number.isFinite(sp) || sp < 0 || sp > 100)) return 'Story points must be between 0 and 100.'
+  const hrs = f.hours === '' ? null : Number(f.hours)
+  if (hrs !== null && (!Number.isFinite(hrs) || hrs < 0 || hrs > 1000)) return 'Hours must be between 0 and 1000.'
   if (!f.title.trim()) return 'Title is required.'
   if (f.type === 'epic' && f.startDate && f.targetDate && f.targetDate < f.startDate) return 'Target date is before the start date.'
   const epic = f.type === 'epic'
@@ -74,6 +78,7 @@ function toPatch(f: FormState): ItemPatch | string {
     status: f.status,
     priority: f.priority,
     storyPoints: epic ? null : sp,
+    hours: epic ? null : hrs,
     assigneeId: f.assigneeId,
     epicId: epic ? null : f.epicId,
     sprintId: epic ? null : f.sprintId,
@@ -340,7 +345,7 @@ function EpicChildren({ orgId, epic }: { orgId: string; epic: Item }) {
 function ItemView({ id }: { id: string }) {
   const router = useRouter()
   const { user } = useAuth()
-  const { orgId, can, memberName } = useOrg()
+  const { orgId, can, memberName, projects } = useOrg()
   const toast = useToaster()
   const uid = user!.uid
   const live = useLiveDoc<Item>(() => (orgId ? orgItem(orgId, 'items', id) : null), `item:${orgId}:${id}`)
@@ -440,7 +445,8 @@ function ItemView({ id }: { id: string }) {
   const sprintOptions = sprints.data.filter((s) => s.status !== 'completed' || s.id === item.sprintId)
   const currentSprint = sprints.data.find((s) => s.id === item.sprintId)
   const isEpic = form.type === 'epic'
-  const readOnly = !canWrite
+  // Members may only edit items in projects they are assigned to; managers see every project.
+  const readOnly = !canWrite || !projects.some((p) => p.id === item.projectId)
 
   return (
     <>
@@ -527,6 +533,11 @@ function ItemView({ id }: { id: string }) {
               {!isEpic ? (
                 <Field label="Story points" optional>
                   {(p) => <input {...p} form="item-edit" className="input" type="number" min={0} max={100} step={0.5} value={form.storyPoints} onChange={(e) => set('storyPoints', e.target.value)} />}
+                </Field>
+              ) : null}
+              {!isEpic ? (
+                <Field label="Hours" optional>
+                  {(p) => <input {...p} form="item-edit" className="input" type="number" min={0} max={1000} step={0.5} value={form.hours} onChange={(e) => set('hours', e.target.value)} />}
                 </Field>
               ) : null}
               <Field label="Assignee" optional>
