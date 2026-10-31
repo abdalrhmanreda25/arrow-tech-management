@@ -16,7 +16,8 @@ export default function HistoryTab({ sprint, events, loading, error, onRetry }: 
   if (sprint.status === 'planned') {
     return <Empty icon="clock" title="No history yet">History starts when the sprint starts. Until then, planning changes are not scope changes.</Empty>
   }
-  if (loading) return <Loading />
+  // Keep showing the last history while a refresh loads.
+  if (loading && !events) return <Loading />
   if (error) return <ErrorState error={error} onRetry={onRetry} />
   const list = events ?? []
   const changes = list.filter((e) => e.type !== 'sprint_started' && e.type !== 'sprint_completed')

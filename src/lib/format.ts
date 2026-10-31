@@ -42,6 +42,8 @@ export function todayKey(date = new Date()) {
 
 export const pts = (n: number | null | undefined) => `${Math.round((n ?? 0) * 10) / 10} pt${n === 1 ? '' : 's'}`
 
+export const hrs = (n: number | null | undefined) => `${Math.round((n ?? 0) * 10) / 10} h`
+
 export const pct = (n: number | null | undefined) => (n === null || n === undefined ? '-' : `${Math.round(n * 100)}%`)
 
 export function initials(name = '') {

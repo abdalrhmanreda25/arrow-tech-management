@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import Link from 'next/link'
+import { sprintHours } from '@domain/hours'
 import { buildSprintSeries } from '@domain/reports'
 import { SprintChart } from '@/components/charts'
 import Icon from '@/components/ui/Icon'
@@ -11,10 +12,10 @@ import { useOrg } from '@/components/providers/OrgProvider'
 import { useFetch } from '@/lib/hooks'
 import { getSnapshot, toDomainEvents } from '@/lib/data/sprints'
 import { downloadCsv } from '@/lib/csv'
-import { pct, pts } from '@/lib/format'
+import { hrs, pct, pts } from '@/lib/format'
 import { statusLabel, typeLabel } from '@/lib/constants'
 import { toReportSprint } from '@/lib/sprint-ui'
-import type { SnapshotItem, Sprint, SprintEventDoc } from '@/lib/types'
+import type { Item, SnapshotItem, Sprint, SprintEventDoc } from '@/lib/types'
 
 function SnapshotList({ items }: { items: SnapshotItem[] }) {
   const { memberName } = useOrg()
@@ -36,8 +37,53 @@ function SnapshotList({ items }: { items: SnapshotItem[] }) {
   )
 }
 
+/** Estimated hours of the work in the sprint now, done and remaining, per person. */
+function HoursPanel({ items, completed }: { items: Item[]; completed: boolean }) {
+  const { memberName } = useOrg()
+  const h = useMemo(() => sprintHours(items), [items])
+  return (
+    <Panel title="Hours">
+      <div className="admin-stats stats-4">
+        <Stat label="Done" value={hrs(h.done)} hint={h.total > 0 ? `${pct(h.done / h.total)} of estimated hours` : undefined} />
+        <Stat label="Remaining" value={hrs(h.remaining)} />
+        <Stat label="Estimated" value={hrs(h.total)} hint={completed ? 'Carried-over work is no longer counted here' : undefined} />
+        <Stat label="No hours set" value={h.withoutHours} hint={`item${h.withoutHours === 1 ? '' : 's'} without an estimate`} />
+      </div>
+      {h.people.length ? (
+        <div className="table-scroll" style={{ marginTop: 12 }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Done</th>
+                <th>Estimated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {h.people.map((p) => (
+                <tr key={p.uid ?? 'none'}>
+                  <td data-label="Person">{p.uid ? memberName(p.uid) : 'Unassigned'}</td>
+                  <td data-label="Done">{hrs(p.done)}</td>
+                  <td data-label="Estimated">{hrs(p.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted small" style={{ marginTop: 12 }}>No item in this sprint has hours yet. Set them on each item.</p>
+      )}
+      {h.doneWithoutPoints ? (
+        <p className="xsmall subtle" style={{ marginTop: 12 }}>
+          {h.doneWithoutPoints} done item{h.doneWithoutPoints === 1 ? ' has' : 's have'} no story points. Burndown and burnup count points only, so {h.doneWithoutPoints === 1 ? 'it does' : 'they do'} not move the charts.
+        </p>
+      ) : null}
+    </Panel>
+  )
+}
+
 /** Burndown, burnup and the closing record, all rebuilt from persisted history. */
-export default function ReportTab({ orgId, sprint, events, loading, error, onRetry }: { orgId: string; sprint: Sprint; events: SprintEventDoc[] | null; loading: boolean; error: Error | null; onRetry: () => void }) {
+export default function ReportTab({ orgId, sprint, items, events, loading, error, onRetry }: { orgId: string; sprint: Sprint; items: Item[]; events: SprintEventDoc[] | null; loading: boolean; error: Error | null; onRetry: () => void }) {
   const { org, memberName } = useOrg()
   const series = useMemo(
     () => (events ? buildSprintSeries(toReportSprint(sprint), toDomainEvents(events), { timeZone: org?.timeZone || 'UTC' }) : null),
@@ -56,7 +102,8 @@ export default function ReportTab({ orgId, sprint, events, loading, error, onRet
   if (sprint.status === 'planned') {
     return <Empty icon="chart" title="No report yet">Burndown and burnup appear once the sprint starts.</Empty>
   }
-  if (loading) return <Loading />
+  // Keep showing the last report while a refresh loads.
+  if (loading && !events) return <Loading />
   if (error) return <ErrorState error={error} onRetry={onRetry} />
   if (!series) return null
 
@@ -98,6 +145,8 @@ export default function ReportTab({ orgId, sprint, events, loading, error, onRet
         <Stat label="Scope change" value={`+${series.added} / -${series.removed}`} hint="Points added / removed after start" />
         <Stat label={sprint.status === 'completed' ? 'Carried over' : 'Remaining'} value={pts(sprint.status === 'completed' ? st?.carriedOverPoints ?? 0 : series.scope - series.completed)} hint={sprint.status === 'completed' ? `${st?.carriedOverCount ?? 0} item${st?.carriedOverCount === 1 ? '' : 's'}` : undefined} />
       </div>
+
+      <HoursPanel items={items} completed={sprint.status === 'completed'} />
 
       {sprint.status === 'completed' && sprint.historyComplete === false ? (
         <InsufficientData title="Commitment is approximate">This sprint was started without a recorded commitment, so its committed figure is the scope at completion.</InsufficientData>

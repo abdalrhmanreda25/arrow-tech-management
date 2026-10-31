@@ -51,8 +51,14 @@ function SprintDetail({ id }: { id: string }) {
   const [wantEvents, setWantEvents] = useState(false)
   const [dialog, setDialog] = useState<'edit' | 'start' | 'complete' | null>(null)
 
-  // Events are read once, on demand: they feed history and the report only.
-  const events = useFetch(orgId && wantEvents && sprint && sprint.status !== 'planned' ? () => getSprintEvents(orgId, id) : null, `events:${orgId}:${id}:${wantEvents}:${sprint?.status}`)
+  // Events are read on demand: they feed history and the report only. Every
+  // item write that changes them also bumps the item's version, so re-read
+  // whenever the sprint's items change.
+  const itemsSeen = items.data.map((i) => `${i.id}.${i.version}`).join()
+  const events = useFetch(
+    orgId && wantEvents && sprint && sprint.status !== 'planned' ? () => getSprintEvents(orgId, id) : null,
+    `events:${orgId}:${id}:${wantEvents}:${sprint?.status}:${itemsSeen}`,
+  )
 
   useEffect(() => {
     if (tab === 'history' || tab === 'report') setWantEvents(true)
@@ -135,7 +141,7 @@ function SprintDetail({ id }: { id: string }) {
         {tab === 'capacity' ? <CapacityTab orgId={orgId} sprint={sprint} items={items.data} uid={uid} /> : null}
         {tab === 'ceremonies' ? <CeremoniesTab orgId={orgId} sprint={sprint} uid={uid} /> : null}
         {tab === 'history' ? <HistoryTab sprint={sprint} events={events.data} loading={events.loading} error={events.error} onRetry={events.reload} /> : null}
-        {tab === 'report' ? <ReportTab orgId={orgId} sprint={sprint} events={events.data} loading={events.loading} error={events.error} onRetry={events.reload} /> : null}
+        {tab === 'report' ? <ReportTab orgId={orgId} sprint={sprint} items={items.data} events={events.data} loading={events.loading} error={events.error} onRetry={events.reload} /> : null}
       </div>
 
       <SprintFormDialog
