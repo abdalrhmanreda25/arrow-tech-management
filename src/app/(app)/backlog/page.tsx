@@ -6,6 +6,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import Icon from '@/components/ui/Icon'
 import ProjectGate from '@/components/ProjectGate'
 import ItemDialog from '@/components/ItemDialog'
+import DoneToggle from '@/components/DoneToggle'
 import { Avatar, Panel, Points, PriorityBadge, StatusBadge, TypeIcon } from '@/components/ui/Bits'
 import { Empty, ErrorState, Loading, PermissionNotice } from '@/components/ui/States'
 import { useAuth } from '@/components/providers/AuthProvider'
@@ -217,7 +218,7 @@ function BacklogView({ project }: { project: Project }) {
                   <li
                     key={i.id}
                     className="item-row"
-                    style={{ gridTemplateColumns: 'auto auto auto auto minmax(0,1fr) auto auto auto auto' }}
+                    style={{ gridTemplateColumns: 'auto auto auto auto minmax(0,1fr) auto auto auto auto auto' }}
                     draggable={canReorder}
                     data-dragging={dragId === i.id}
                     data-drop={dropBefore === i.id && dragId !== i.id ? 'before' : undefined}
@@ -265,6 +266,7 @@ function BacklogView({ project }: { project: Project }) {
                     <span className="hide-sm"><StatusBadge status={i.status} /></span>
                     <span className="hide-sm">{who ? <Avatar name={who.displayName} uid={who.uid} src={who.photoURL} size={22} /> : <span className="subtle xsmall">-</span>}</span>
                     <Points value={i.type === 'epic' ? null : i.storyPoints} />
+                    {canWrite ? <DoneToggle item={i} /> : <span />}
                   </li>
                 )
               })}

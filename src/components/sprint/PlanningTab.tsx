@@ -8,6 +8,7 @@ import { points as itemPoints } from '@domain/sprint'
 import { velocityReport } from '@domain/reports'
 import ItemDialog from '@/components/ItemDialog'
 import Icon from '@/components/ui/Icon'
+import DoneToggle from '@/components/DoneToggle'
 import { Avatar, Panel, Points, PriorityBadge, StatusBadge, TypeIcon } from '@/components/ui/Bits'
 import { Empty, ErrorState, Loading } from '@/components/ui/States'
 import { useOrg } from '@/components/providers/OrgProvider'
@@ -179,9 +180,12 @@ export default function PlanningTab({ orgId, sprint, items, itemsLoading, itemsE
                   item={i}
                   action={
                     editable ? (
-                      <button type="button" className="icon-btn icon-btn--sm" aria-label={`Move ${i.key} back to the backlog`} disabled={busy} onClick={() => remove(i)}>
-                        <Icon name="close" />
-                      </button>
+                      <span className="row" style={{ flexWrap: 'nowrap' }}>
+                        <DoneToggle item={i} disabled={busy} />
+                        <button type="button" className="icon-btn icon-btn--sm" aria-label={`Move ${i.key} back to the backlog`} disabled={busy} onClick={() => remove(i)}>
+                          <Icon name="close" />
+                        </button>
+                      </span>
                     ) : null
                   }
                 />

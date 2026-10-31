@@ -258,3 +258,7 @@ button.text-link { color: var(--accent-text); }
 
 /* Rows wrapped for readability in JSX still sit on the brand's dt/dd grid. */
 .detail-list > .value-row { display: contents; }
+
+/* One-click done toggle in item lists. */
+.done-toggle { border-radius: 999px; }
+.done-toggle[aria-pressed='true'] { background: var(--success-soft); border-color: var(--success-border); color: var(--success); }
